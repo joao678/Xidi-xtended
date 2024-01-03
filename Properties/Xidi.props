@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="PropertySheets">
-    <Import Project="$(SolutionDir)Properties\ThirdParty.props" Condition="exists('$(SolutionDir)Properties\ThirdParty.props')"/>
+    <Import Project="$(SolutionDir)Properties\ThirdParty.props" Condition="exists('$(SolutionDir)Properties\ThirdParty.props')" />
     <Import Project="$(SolutionDir)Properties\Resources.props" />
     <Import Project="$(SolutionDir)Properties\GitVersionInfo.props" />
     <Import Project="$(SolutionDir)Properties\BuildSettings.props" />
@@ -9,7 +9,10 @@
   <ItemDefinitionGroup>
     <Link>
       <AdditionalLibraryDirectories>$(SolutionDir)Lib\x86;$(SolutionDir)Lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(SolutionDir)Lib\x86\SDL2.lib;$(SolutionDir)Lib\x86\SDL2main.lib;$(SolutionDir)Lib\x64\SDL2.lib;$(SolutionDir)Lib\x64\SDL2main.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)Lib\x86\SDL2.lib;$(SolutionDir)Lib\x86\SDL2main.lib;$(SolutionDir)Lib\x64\SDL2.lib;$(SolutionDir)Lib\x64\SDL2main.lib;$(SolutionDir)Lib\LuaJIT\x86\buildvm.lib;$(SolutionDir)Lib\LuaJIT\x86\lua51.lib;$(SolutionDir)Lib\LuaJIT\x86\luajit.lib;$(SolutionDir)Lib\LuaJIT\x86\minilua.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)ThirdParty\LuaJIT;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
   </ItemDefinitionGroup>
 </Project>
