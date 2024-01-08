@@ -8,8 +8,8 @@
   </ImportGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalLibraryDirectories>$(SolutionDir)Lib\x86;$(SolutionDir)Lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(SolutionDir)Lib\x86\SDL2.lib;$(SolutionDir)Lib\x86\SDL2main.lib;$(SolutionDir)Lib\x64\SDL2.lib;$(SolutionDir)Lib\x64\SDL2main.lib;$(SolutionDir)Lib\LuaJIT\x86\buildvm.lib;$(SolutionDir)Lib\LuaJIT\x86\lua51.lib;$(SolutionDir)Lib\LuaJIT\x86\luajit.lib;$(SolutionDir)Lib\LuaJIT\x86\minilua.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Lib\x86;$(SolutionDir)Lib\x64;$(SolutionDir)Lib\LuaJIT\x86;$(SolutionDir)Lib\LuaJIT\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(SolutionDir)Lib\x86\SDL2.lib;$(SolutionDir)Lib\x86\SDL2main.lib;$(SolutionDir)Lib\x64\SDL2.lib;$(SolutionDir)Lib\x64\SDL2main.lib;$(SolutionDir)Lib\LuaJIT\x86\buildvm.lib;$(SolutionDir)Lib\LuaJIT\x86\lua51.lib;$(SolutionDir)Lib\LuaJIT\x86\luajit.lib;$(SolutionDir)Lib\LuaJIT\x86\minilua.lib;$(SolutionDir)Lib\LuaJIT\x64\buildvm.lib;$(SolutionDir)Lib\LuaJIT\x64\lua51.lib;$(SolutionDir)Lib\LuaJIT\x64\luajit.lib;$(SolutionDir)Lib\LuaJIT\x64\minilua.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ClCompile>
       <AdditionalIncludeDirectories>$(SolutionDir)ThirdParty\LuaJIT;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
