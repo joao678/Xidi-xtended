@@ -34,6 +34,13 @@
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
 
+extern "C"
+{
+#include "lauxlib.h"
+#include "lua.h"
+#include "lualib.h"
+}
+
 /// Logs a DirectInput interface method invocation and returns.
 #define LOG_INVOCATION_AND_RETURN(result, severity)                                                        \
   do                                                                                                       \
@@ -1763,6 +1770,20 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
+  static lua_State* L = luaL_newstate();
+  static bool once = false;
+
+  static int getResultFromLua(int index, const char* funcName)
+  {
+    lua_getglobal(L, "controllers");
+    lua_rawgeti(L, -1, index);
+    lua_getfield(L, -1, funcName);
+    int result = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+    lua_settop(L, 0);
+    return result;
+  }
+
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
@@ -1776,7 +1797,61 @@ namespace Xidi
     bool writeDataPacketResult = false;
     {
       auto lock = controller->Lock();
-      writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, controller->GetState());
+
+      Xidi::Controller::SState state = controller->GetState();
+
+      if (once == false)
+      {
+        luaL_openlibs(L);
+        luaL_dofile(L, ".\\script.lua");
+        once = true;
+      }
+      else
+      {
+        if (controller->GetIdentifier() == 0)
+        {
+          lua_getglobal(L, "PollInput");
+          lua_pushinteger(L, controller->GetIdentifier());
+          lua_pcall(L, 1, 0, 0);
+          lua_pop(L, 1);
+          lua_settop(L, 0);
+
+          state.button[(int)Xidi::Controller::EButton::B1] = getResultFromLua(1, "b1");
+          state.button[(int)Xidi::Controller::EButton::B2] = getResultFromLua(1, "b2");
+          state.button[(int)Xidi::Controller::EButton::B3] = getResultFromLua(1, "b3");
+          state.button[(int)Xidi::Controller::EButton::B4] = getResultFromLua(1, "b4");
+          state.button[(int)Xidi::Controller::EButton::B5] = getResultFromLua(1, "b5");
+          state.button[(int)Xidi::Controller::EButton::B6] = getResultFromLua(1, "b6");
+          state.button[(int)Xidi::Controller::EButton::B7] = getResultFromLua(1, "b7");
+          state.button[(int)Xidi::Controller::EButton::B8] = getResultFromLua(1, "b8");
+          state.button[(int)Xidi::Controller::EButton::B9] = getResultFromLua(1, "b9");
+          state.button[(int)Xidi::Controller::EButton::B10] = getResultFromLua(1, "b10");
+          state.button[(int)Xidi::Controller::EButton::B11] = getResultFromLua(1, "b11");
+          state.button[(int)Xidi::Controller::EButton::B12] = getResultFromLua(1, "b12");
+          state.button[(int)Xidi::Controller::EButton::B13] = getResultFromLua(1, "b13");
+          state.button[(int)Xidi::Controller::EButton::B14] = getResultFromLua(1, "b14");
+          state.button[(int)Xidi::Controller::EButton::B15] = getResultFromLua(1, "b15");
+          state.button[(int)Xidi::Controller::EButton::B16] = getResultFromLua(1, "b16");
+
+          state.axis[(int)Xidi::Controller::EAxis::X] = getResultFromLua(1, "X");
+          state.axis[(int)Xidi::Controller::EAxis::Y] = getResultFromLua(1, "Y");
+          state.axis[(int)Xidi::Controller::EAxis::Z] = getResultFromLua(1, "Z");
+          state.axis[(int)Xidi::Controller::EAxis::RotX] = getResultFromLua(1, "RotX");
+          state.axis[(int)Xidi::Controller::EAxis::RotY] = getResultFromLua(1, "RotY");
+          state.axis[(int)Xidi::Controller::EAxis::RotZ] = getResultFromLua(1, "RotZ");
+
+          state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
+              (bool)getResultFromLua(1, "Up");
+          state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
+              (bool)getResultFromLua(1, "Down");
+          state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
+              (bool)getResultFromLua(1, "Left");
+          state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
+              (bool)getResultFromLua(1, "Right");
+        }
+      }
+
+      writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
     }
     LOG_INVOCATION_AND_RETURN(
         ((true == writeDataPacketResult) ? DI_OK : DIERR_INVALIDPARAM), kMethodSeverity);
