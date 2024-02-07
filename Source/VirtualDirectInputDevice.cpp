@@ -41,11 +41,6 @@ extern "C"
 #include "lualib.h"
 }
 
-//
-// #include <iostream>
-#pragma comment(lib, "ws2_32.lib")
-#define DEFAULT_PORT 12345
-
 /// Logs a DirectInput interface method invocation and returns.
 #define LOG_INVOCATION_AND_RETURN(result, severity)                                                        \
   do                                                                                                       \
@@ -1778,13 +1773,6 @@ namespace Xidi
   static lua_State* L = luaL_newstate();
   static bool once = false;
 
-  static WSADATA wsaData;
-  static SOCKET udpSocket;
-  static WSAEVENT event;
-  static sockaddr_in clientAddr;
-  static int clientAddrLen = sizeof(clientAddr);
-  static char buffer[1024];
-
   static int getResultFromLua(int index, const char* funcName)
   {
     lua_getglobal(L, "controllers");
@@ -1794,27 +1782,6 @@ namespace Xidi
     lua_pop(L, 1);
     lua_settop(L, 0);
     return result;
-  }
-
-  static void udpUpdate()
-  {
-    WSAWaitForMultipleEvents(WSA_MAXIMUM_WAIT_EVENTS, &event, FALSE, 0, FALSE);
-
-    WSANETWORKEVENTS networkEvents;
-    WSAEnumNetworkEvents(udpSocket, event, &networkEvents);
-
-    if (networkEvents.lNetworkEvents & FD_READ)
-    {
-      // Data is available to read
-      int bytesRead = recvfrom(
-          udpSocket, buffer, 1024, 0, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
-
-      if (bytesRead > 0)
-      {
-        lua_State* newThread = lua_newthread(L);
-        luaL_dostring(L, buffer);
-      }
-    }
   }
 
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
@@ -1837,28 +1804,10 @@ namespace Xidi
       {
         luaL_openlibs(L);
         luaL_dofile(L, ".\\script.lua");
-
-        WSAStartup(MAKEWORD(2, 2), &wsaData);
-        udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-        sockaddr_in serverAddr;
-        serverAddr.sin_family = AF_INET;
-        serverAddr.sin_port = htons(DEFAULT_PORT);
-        serverAddr.sin_addr.s_addr = INADDR_ANY;
-
-        bind(udpSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-
-        u_long nonBlockingMode = 1;
-        ioctlsocket(udpSocket, FIONBIO, &nonBlockingMode);
-
-        event = WSACreateEvent();
-        WSAEventSelect(udpSocket, event, FD_READ | FD_CLOSE);
-
         once = true;
       }
       else
       {
-        udpUpdate();
         if (controller->GetIdentifier() == 0)
         {
           lua_getglobal(L, "PollInput");
