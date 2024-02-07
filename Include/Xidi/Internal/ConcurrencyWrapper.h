@@ -77,9 +77,7 @@ namespace Xidi
           stopToken,
           [this, &externalData]() -> bool
           {
-            Sleep(1);
-            //return (data != externalData);
-            return true;
+            return (data != externalData);
           });
 
       if (stopToken.stop_requested()) return false;
