@@ -34,15 +34,10 @@
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
 
-extern "C"
-{
-#include "lauxlib.h"
-#include "lua.h"
-#include "lualib.h"
-}
-
 #define _CRT_SECURE_NO_DEPRECATE
 #include <stdio.h>
+
+#include "cJSON.h"
 
 #define BUF_SIZE 1000000
 
@@ -1775,32 +1770,6 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  static lua_State* L = luaL_newstate();
-  static bool once = false;
-
-  static int getResultFromLua(int index, const char* funcName)
-  {
-    lua_getglobal(L, "controllers");
-    lua_rawgeti(L, -1, index);
-    lua_getfield(L, -1, funcName);
-    int result = (int)lua_tointeger(L, -1);
-    lua_pop(L, 1);
-    lua_settop(L, 0);
-    return result;
-  }
-
-  static void udpUpdate()
-  {
-    HANDLE hMapFile = CreateFileMapping(
-        INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, BUF_SIZE, TEXT("Local\\MySharedMemory"));
-    char* pBuf = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
-
-    luaL_dostring(L, pBuf);
-
-    UnmapViewOfFile(pBuf);
-    CloseHandle(hMapFile);
-  }
-
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
@@ -1817,57 +1786,79 @@ namespace Xidi
 
       Xidi::Controller::SState state = controller->GetState();
 
-      if (once == false)
+      if (controller->GetIdentifier() == 0)
       {
-        luaL_openlibs(L);
-        luaL_dofile(L, ".\\script.lua");
+        HANDLE hMapFile = CreateFileMapping(
+            INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, BUF_SIZE, TEXT("Local\\MySharedMemory"));
+        char* jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
 
-        once = true;
-      }
-      else
-      {
-        if (controller->GetIdentifier() == 0)
+        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
+
+        if (jsonArray != NULL)
         {
-          udpUpdate();
-          lua_getglobal(L, "PollInput");
-          lua_pushinteger(L, controller->GetIdentifier());
-          lua_pcall(L, 1, 0, 0);
-          lua_pop(L, 1);
-          lua_settop(L, 0);
+          cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, 0);
+          state.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B2] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b2")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B3] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b3")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B4] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b4")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B5] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b5")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B6] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b6")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B7] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b7")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B8] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b8")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B9] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b9")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B10] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b10")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B11] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b11")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B12] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b12")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B13] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b13")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B14] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b14")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B15] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b15")->valueint;
+          state.button[(int)Xidi::Controller::EButton::B16] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b16")->valueint;
 
-          state.button[(int)Xidi::Controller::EButton::B1] = getResultFromLua(1, "b1");
-          state.button[(int)Xidi::Controller::EButton::B2] = getResultFromLua(1, "b2");
-          state.button[(int)Xidi::Controller::EButton::B3] = getResultFromLua(1, "b3");
-          state.button[(int)Xidi::Controller::EButton::B4] = getResultFromLua(1, "b4");
-          state.button[(int)Xidi::Controller::EButton::B5] = getResultFromLua(1, "b5");
-          state.button[(int)Xidi::Controller::EButton::B6] = getResultFromLua(1, "b6");
-          state.button[(int)Xidi::Controller::EButton::B7] = getResultFromLua(1, "b7");
-          state.button[(int)Xidi::Controller::EButton::B8] = getResultFromLua(1, "b8");
-          state.button[(int)Xidi::Controller::EButton::B9] = getResultFromLua(1, "b9");
-          state.button[(int)Xidi::Controller::EButton::B10] = getResultFromLua(1, "b10");
-          state.button[(int)Xidi::Controller::EButton::B11] = getResultFromLua(1, "b11");
-          state.button[(int)Xidi::Controller::EButton::B12] = getResultFromLua(1, "b12");
-          state.button[(int)Xidi::Controller::EButton::B13] = getResultFromLua(1, "b13");
-          state.button[(int)Xidi::Controller::EButton::B14] = getResultFromLua(1, "b14");
-          state.button[(int)Xidi::Controller::EButton::B15] = getResultFromLua(1, "b15");
-          state.button[(int)Xidi::Controller::EButton::B16] = getResultFromLua(1, "b16");
-
-          state.axis[(int)Xidi::Controller::EAxis::X] = getResultFromLua(1, "X");
-          state.axis[(int)Xidi::Controller::EAxis::Y] = getResultFromLua(1, "Y");
-          state.axis[(int)Xidi::Controller::EAxis::Z] = getResultFromLua(1, "Z");
-          state.axis[(int)Xidi::Controller::EAxis::RotX] = getResultFromLua(1, "RotX");
-          state.axis[(int)Xidi::Controller::EAxis::RotY] = getResultFromLua(1, "RotY");
-          state.axis[(int)Xidi::Controller::EAxis::RotZ] = getResultFromLua(1, "RotZ");
+          state.axis[(int)Xidi::Controller::EAxis::X] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "X")->valueint;
+          state.axis[(int)Xidi::Controller::EAxis::Y] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Y")->valueint;
+          state.axis[(int)Xidi::Controller::EAxis::Z] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Z")->valueint;
+          state.axis[(int)Xidi::Controller::EAxis::RotX] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX")->valueint;
+          state.axis[(int)Xidi::Controller::EAxis::RotY] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY")->valueint;
+          state.axis[(int)Xidi::Controller::EAxis::RotZ] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ")->valueint;
 
           state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
-              (bool)getResultFromLua(1, "Up");
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Up")->valueint;
           state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
-              (bool)getResultFromLua(1, "Down");
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Down")->valueint;
           state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
-              (bool)getResultFromLua(1, "Left");
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Left")->valueint;
           state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
-              (bool)getResultFromLua(1, "Right");
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Right")->valueint;
         }
+
+        UnmapViewOfFile(jsonBuffer);
+        CloseHandle(hMapFile);
+
+        cJSON_Delete(jsonArray);
       }
 
       writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);

@@ -113,6 +113,7 @@
     <ClInclude Include="Include\Xidi\Internal\ApiWindows.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiBitSet.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiXidi.h" />
+<ClInclude Include="Include\Xidi\Internal\cJSON.h" />
     <ClInclude Include="Include\Xidi\Internal\Configuration.h" />
     <ClInclude Include="Include\Xidi\Internal\ControllerIdentification.h" />
     <ClInclude Include="Include\Xidi\Internal\ControllerMath.h" />
