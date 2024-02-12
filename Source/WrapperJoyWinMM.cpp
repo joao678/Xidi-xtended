@@ -32,6 +32,10 @@
 #include "Strings.h"
 #include "VirtualController.h"
 
+#include "cJSON.h"
+
+#define BUF_SIZE 1000000
+
 /// Logs a WinMM device-specific function invocation.
 #define LOG_INVOCATION(severity, joyID, result)                                                    \
   Message::OutputFormatted(                                                                        \
@@ -739,7 +743,83 @@ namespace Xidi
         const Controller::TControllerIdentifier xJoyID =
             (Controller::TControllerIdentifier)((-realJoyID) - 1);
 
-        const Controller::SState joyStateData = controllers[xJoyID]->GetState();
+        Controller::SState joyStateData = controllers[xJoyID]->GetState();
+
+        HANDLE hMapFile = CreateFileMapping(
+            INVALID_HANDLE_VALUE,
+            NULL,
+            PAGE_READWRITE,
+            0,
+            BUF_SIZE,
+            TEXT("Local\\XidiControllers"));
+        char* jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
+
+        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
+
+        if (jsonArray != NULL)
+        {
+          cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, xJoyID);
+          joyStateData.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B2] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b2")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B3] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b3")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B4] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b4")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B5] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b5")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B6] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b6")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B7] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b7")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B8] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b8")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B9] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b9")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B10] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b10")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B11] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b11")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B12] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b12")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B13] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b13")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B14] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b14")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B15] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b15")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B16] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b16")->valueint;
+
+          joyStateData.axis[(int)Xidi::Controller::EAxis::X] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "X")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::Y] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Y")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::Z] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Z")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotX] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotY] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotZ] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ")->valueint;
+
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Up")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Down")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Left")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Right")->valueint;
+        }
+
+        UnmapViewOfFile(jsonBuffer);
+        CloseHandle(hMapFile);
+        cJSON_Delete(jsonArray);
 
         pji->wXpos = (WORD)joyStateData[Controller::EAxis::X];
         pji->wYpos = (WORD)joyStateData[Controller::EAxis::Y];
@@ -782,7 +862,84 @@ namespace Xidi
           return result;
         }
 
-        const Controller::SState joyStateData = controllers[xJoyID]->GetState();
+        Controller::SState joyStateData = controllers[xJoyID]->GetState();
+
+        HANDLE hMapFile = CreateFileMapping(
+            INVALID_HANDLE_VALUE,
+            NULL,
+            PAGE_READWRITE,
+            0,
+            BUF_SIZE,
+            TEXT("Local\\XidiControllers"));
+        char* jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
+
+        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
+
+        if (jsonArray != NULL)
+        {
+          cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, xJoyID);
+          joyStateData.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B1] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B2] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b2")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B3] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b3")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B4] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b4")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B5] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b5")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B6] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b6")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B7] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b7")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B8] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b8")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B9] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b9")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B10] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b10")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B11] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b11")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B12] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b12")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B13] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b13")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B14] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b14")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B15] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b15")->valueint;
+          joyStateData.button[(int)Xidi::Controller::EButton::B16] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "b16")->valueint;
+
+          joyStateData.axis[(int)Xidi::Controller::EAxis::X] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "X")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::Y] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Y")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::Z] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "Z")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotX] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotY] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY")->valueint;
+          joyStateData.axis[(int)Xidi::Controller::EAxis::RotZ] =
+              cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ")->valueint;
+
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Up")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Down")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Left")->valueint;
+          joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
+              (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Right")->valueint;
+        }
+
+        UnmapViewOfFile(jsonBuffer);
+        CloseHandle(hMapFile);
+        cJSON_Delete(jsonArray);
+
         const EPovValue joyStateDataPovValue =
             DataFormat::DirectInputPovValue(joyStateData.povDirection);
 
