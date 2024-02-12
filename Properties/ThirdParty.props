@@ -9,7 +9,4 @@
 	<ImportGroup Label="PropertySheets" Condition="'$(ThirdPartyNeedsXstdBitSet)'!=''">
 		<Import Project="$(SolutionDir)Properties\ThirdParty\XstdBitSet.props" />
 	</ImportGroup>
-	<ImportGroup Label="PropertySheets">
-		<Import Project="$(SolutionDir)Properties\ThirdParty\SDL2.props" />
-	</ImportGroup>
 </Project>
