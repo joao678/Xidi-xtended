@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 /***************************************************************************************************
  * Xidi
  *   DirectInput interface for XInput controllers.
@@ -14,6 +15,8 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -1770,6 +1773,9 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
+  HANDLE hMapFile;
+  char* jsonBuffer;
+  
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
@@ -1786,76 +1792,199 @@ namespace Xidi
 
       Xidi::Controller::SState state = controller->GetState();
 
-      HANDLE hMapFile = CreateFileMapping(
-          INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, BUF_SIZE, TEXT("Local\\XidiControllers"));
-      char* jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
-
       cJSON* jsonArray = cJSON_Parse(jsonBuffer);
-
-      if (jsonArray != NULL)
+      
+      if (cJSON_GetErrorPtr() == NULL)
       {
-        cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
-        state.button[(int)Xidi::Controller::EButton::B1] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B1] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b1")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B2] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b2")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B3] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b3")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B4] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b4")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B5] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b5")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B6] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b6")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B7] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b7")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B8] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b8")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B9] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b9")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B10] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b10")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B11] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b11")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B12] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b12")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B13] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b13")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B14] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b14")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B15] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b15")->valueint;
-        state.button[(int)Xidi::Controller::EButton::B16] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "b16")->valueint;
+        if (jsonArray != NULL)
+        {
+          cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
 
-        state.axis[(int)Xidi::Controller::EAxis::X] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "X")->valueint;
-        state.axis[(int)Xidi::Controller::EAxis::Y] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "Y")->valueint;
-        state.axis[(int)Xidi::Controller::EAxis::Z] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "Z")->valueint;
-        state.axis[(int)Xidi::Controller::EAxis::RotX] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX")->valueint;
-        state.axis[(int)Xidi::Controller::EAxis::RotY] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY")->valueint;
-        state.axis[(int)Xidi::Controller::EAxis::RotZ] =
-            cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ")->valueint;
+          cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b1");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B1] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b2");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B2] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b3");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B3] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b4");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B4] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b5");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B5] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b6");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B6] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b7");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B7] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b8");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B8] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b9");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B9] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b10");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B10] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b11");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B11] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b12");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B12] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b13");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B13] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b14");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B14] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b15");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B15] = buttonFromJSON->valueint;
+          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b16");
+          if (buttonFromJSON != NULL)
+            state.button[(int)Xidi::Controller::EButton::B16] = buttonFromJSON->valueint;
 
-        state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
-            (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Up")->valueint;
-        state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
-            (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Down")->valueint;
-        state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
-            (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Left")->valueint;
-        state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
-            (bool)cJSON_GetObjectItemCaseSensitive(jsonObject, "Right")->valueint;
+          cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::X] = axisFromJSON->valueint;
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Y");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::Y] = axisFromJSON->valueint;
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Z");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::Z] = axisFromJSON->valueint;
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::RotX] = axisFromJSON->valueint;
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::RotY] = axisFromJSON->valueint;
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
+
+          cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
+          if (directionFromJSON != NULL)
+            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
+                directionFromJSON->valueint;
+          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Down");
+          if (directionFromJSON != NULL)
+            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
+                directionFromJSON->valueint;
+          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Left");
+          if (directionFromJSON != NULL)
+            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
+                directionFromJSON->valueint;
+          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Right");
+          if (directionFromJSON != NULL)
+            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
+                directionFromJSON->valueint;
+
+          if (controller->GetIdentifier() == 0)
+          {
+            cJSON* keyboardKeys = cJSON_GetObjectItem(jsonObject, "keyboard");
+
+            if (keyboardKeys != NULL)
+            {
+              cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "escape");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0x01)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0x01);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "enter");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0x1C)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0x1C);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "up");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xC8)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xC8);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "down");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xD0)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xD0);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "left");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xCB)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xCB);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "right");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xCD)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xCD);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "delete");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xD3)
+                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xD3);
+            }
+
+            cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
+
+            if (mouseData != NULL)
+            {
+              cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Left);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint
+                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Right)
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Right);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x1");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint
+                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X1)
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X1);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x2");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint
+                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X2)
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X2);
+
+              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "middle");
+              if (isCurrentKeyPressed != NULL)
+                isCurrentKeyPressed->valueint
+                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Middle)
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Middle);
+
+              cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
+              if (mouseMove->valueint != 0)
+              {
+                cJSON* mouseX = cJSON_GetObjectItemCaseSensitive(mouseData, "x");
+                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::X, mouseX->valueint, 0);
+                cJSON* mouseY = cJSON_GetObjectItemCaseSensitive(mouseData, "y");
+                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
+
+                cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
+                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
+                cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
+                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
+              }   
+            }
+          }
+        }
       }
 
-      UnmapViewOfFile(jsonBuffer);
-      CloseHandle(hMapFile);
       cJSON_Delete(jsonArray);
+
+      if (hMapFile == NULL)
+        hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
+
+      UnmapViewOfFile(jsonBuffer);
+      jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
 
       writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
     }
