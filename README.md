@@ -1,3 +1,181 @@
+# What is this fork?
+This Xidi fork allows for controller, keyboard and mouse data to be feed to the Xidi DLL from a external program using named shared memory. Allowing it to be more flexible and potentially allow for more controllers, devices (or really anything) other than xinput to control games in order to achieve more compatibility and flexibility
+## How does this work?
+Xidi works by creating several virtual DirectInput controllers only exposed to the target application. Before any data is actually sent to the virtual controllers, this fork overrides any data read from the Xidi original mappers defined by its ini file and replaces it with data read from a JSON string recieved by this named memory mapped file below.
+```
+Local\\XidiControllers 
+```
+An external application running on the same machine must create this named memory mapped file using system functions such as [CreateFileMapping](https://learn.microsoft.com/pt-br/windows/win32/api/winbase/nf-winbase-createfilemappinga) and [MapViewOfFile](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile).
+Then write a JSON string to this file following the template below:
+```json
+[
+   {
+      "keyboard":{
+         "escape":0,
+         "enter":0,
+         "up":0,
+         "down":0,
+         "left":0,
+         "right":0,
+         "delete":0
+      },
+      "mouse":{
+         "left":0,
+         "right":0,
+         "x1":0,
+         "x2":0,
+         "middle":0,
+         "mouseMove":0,
+         "x":0,
+         "y":0,
+         "wheelX":0,
+         "wheelY":0
+      },
+      "b1":0,
+      "b2":0,
+      "b3":0,
+      "b4":0,
+      "b5":0,
+      "b6":0,
+      "b7":0,
+      "b8":0,
+      "b9":0,
+      "b10":0,
+      "b11":0,
+      "b12":0,
+      "b13":0,
+      "b14":0,
+      "b15":0,
+      "b16":0,
+      "X":0,
+      "Y":0,
+      "Z":0,
+      "RotX":0,
+      "RotY":0,
+      "RotZ":0,
+      "Up":0,
+      "Down":0,
+      "Left":0,
+      "Right":0
+   },
+   {
+      "b1":0,
+      "b2":0,
+      "b3":0,
+      "b4":0,
+      "b5":0,
+      "b6":0,
+      "b7":0,
+      "b8":0,
+      "b9":0,
+      "b10":0,
+      "b11":0,
+      "b12":0,
+      "b13":0,
+      "b14":0,
+      "b15":0,
+      "b16":0,
+      "X":0,
+      "Y":0,
+      "Z":0,
+      "RotX":0,
+      "RotY":0,
+      "RotZ":0,
+      "Up":0,
+      "Down":0,
+      "Left":0,
+      "Right":0
+   },
+   {
+      "b1":0,
+      "b2":0,
+      "b3":0,
+      "b4":0,
+      "b5":0,
+      "b6":0,
+      "b7":0,
+      "b8":0,
+      "b9":0,
+      "b10":0,
+      "b11":0,
+      "b12":0,
+      "b13":0,
+      "b14":0,
+      "b15":0,
+      "b16":0,
+      "X":0,
+      "Y":0,
+      "Z":0,
+      "RotX":0,
+      "RotY":0,
+      "RotZ":0,
+      "Up":0,
+      "Down":0,
+      "Left":0,
+      "Right":0
+   },
+   {
+      "b1":0,
+      "b2":0,
+      "b3":0,
+      "b4":0,
+      "b5":0,
+      "b6":0,
+      "b7":0,
+      "b8":0,
+      "b9":0,
+      "b10":0,
+      "b11":0,
+      "b12":0,
+      "b13":0,
+      "b14":0,
+      "b15":0,
+      "b16":0,
+      "X":0,
+      "Y":0,
+      "Z":0,
+      "RotX":0,
+      "RotY":0,
+      "RotZ":0,
+      "Up":0,
+      "Down":0,
+      "Left":0,
+      "Right":0
+   }
+]
+```
+As mappers are pretty much ignored in this fork it is recommended to use this xidi.ini file for the best compatibility 
+
+```ini
+[Mapper]
+Type.1                              = StandardGamepad
+Type.2                              = StandardGamepad
+Type.3                              = StandardGamepad
+Type.4                              = StandardGamepad
+
+[Log]
+Enabled                             = no
+Level                               = 4
+
+[Import]
+dinput8.dll                         = C:\<path_to_devreorder>\dinput8_devreorder.dll
+```
+[Devreorder](https://github.com/briankendall/devreorder) is also recommended to hide other controllers such as the DualSense Wireless Controller as this controller also appears as a valid direcinput controller in some games (just make sure that the devreorder dll is renamed like in the .ini file above)
+
+# TODO
+- Force feedback/vibration
+- More keyboard keys (there is a lot of possible keyboard keys in DirectInput and I need to find a smarter way to handle that)
+- Hiding all controllers other than the virtual ones to make sure that devreorder is no longer needed
+- Test it on Linux such as SteamOS to make sure it runs on Steam Deck
+- As this a proof-of-concept, better organize the code so that both dinput and winmm have unified code.
+- The possibility of removing the mappers code entirely as it's not needed
+- Remove xinput as it's irrelevant for the scope of this fork
+- Examples in various programming languages
+
+Other features such as hookmodule remain unchanged.
+
+---
+### Original readme below 👇
 # Xidi
 
 Xidi improves the gameplay experience when using modern XInput-based controllers (such as Xbox controllers) with older games that use DirectInput or WinMM to communicate with game controllers. In more technical terms, Xidi provides both DirectInput and WinMM interfaces for games to use and communicates with XInput-based game controllers natively using XInput, translating between the two interfaces as needed.
