@@ -10,14 +10,9 @@ Then write a JSON string to this file following the template below:
 ```json
 [
    {
-      "keyboard":{
-         "escape":0,
-         "enter":0,
-         "up":0,
-         "down":0,
-         "left":0,
-         "right":0,
-         "delete":0
+      "keyboard": {
+          "released": [],
+          "pressed": []
       },
       "mouse":{
          "left":0,

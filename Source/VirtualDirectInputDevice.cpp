@@ -1891,40 +1891,19 @@ namespace Xidi
 
             if (keyboardKeys != NULL)
             {
-              cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "escape");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0x01)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0x01);
+              cJSON* pressed = cJSON_GetObjectItem(keyboardKeys, "pressed");
+              for (int i = 0; i < cJSON_GetArraySize(pressed); ++i)
+              {
+                cJSON* currentKey = cJSON_GetArrayItem(pressed, i);
+                Xidi::Keyboard::SubmitKeyPressedState(currentKey->valueint);
+              }
 
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "enter");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0x1C)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0x1C);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "up");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xC8)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xC8);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "down");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xD0)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xD0);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "left");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xCB)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xCB);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "right");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xCD)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xCD);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(keyboardKeys, "delete");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Keyboard::SubmitKeyPressedState(0xD3)
-                                              : Xidi::Keyboard::SubmitKeyReleasedState(0xD3);
+              cJSON* released = cJSON_GetObjectItem(keyboardKeys, "released");
+              for (int i = 0; i < cJSON_GetArraySize(released); ++i)
+              {
+                cJSON* currentKey = cJSON_GetArrayItem(released, i);
+                Xidi::Keyboard::SubmitKeyReleasedState(currentKey->valueint);
+              }
             }
 
             cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
