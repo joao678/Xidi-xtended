@@ -466,6 +466,10 @@ namespace Xidi
           return L"RotY";
         case Controller::EAxis::RotZ:
           return L"RotZ";
+        case Controller::EAxis::Slider:
+          return L"Slider";
+        case Controller::EAxis::Dial:
+          return L"Dial";
       }
 
       return L"?";

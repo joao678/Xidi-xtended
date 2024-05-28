@@ -203,6 +203,7 @@ namespace Xidi
   /// Maps a GUID to an axis type, if one is specified.
   /// @param [in] pguid Pointer to the GUID to check.
   /// @return Corresponding axis type, if the GUID identifies a known axis type.
+  bool once = false;
   static std::optional<Controller::EAxis> AxisTypeFromGuid(const GUID* pguid)
   {
     if (nullptr != pguid)
@@ -219,6 +220,9 @@ namespace Xidi
         return Controller::EAxis::RotY;
       else if (GUID_RzAxis == *pguid)
         return Controller::EAxis::RotZ;
+      else if (GUID_Slider == *pguid)
+        once = !once;
+        return once ? Controller::EAxis::Slider : Controller::EAxis::Dial;
     }
 
     return std::nullopt;
@@ -263,7 +267,7 @@ namespace Xidi
     else if (GUID_RzAxis == *pguid)
       return _CRT_WIDE(XIDI_AXIS_NAME_RZ);
     else if (GUID_Slider == *pguid)
-      return L"Slider";
+      return _CRT_WIDE(XIDI_AXIS_NAME_SLIDER);
     else if (GUID_Button == *pguid)
       return L"Button";
     else if (GUID_Key == *pguid)
@@ -355,7 +359,7 @@ namespace Xidi
     {
       case Controller::EElementType::Axis:
         if ((GUID_XAxis == *pguid) || (GUID_YAxis == *pguid) || (GUID_ZAxis == *pguid) ||
-            (GUID_RxAxis == *pguid) || (GUID_RyAxis == *pguid) || (GUID_RzAxis == *pguid))
+            (GUID_RxAxis == *pguid) || (GUID_RyAxis == *pguid) || (GUID_RzAxis == *pguid) || (GUID_Slider == *pguid))
           return elementType;
         break;
 

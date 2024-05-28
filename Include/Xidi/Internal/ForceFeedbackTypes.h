@@ -156,7 +156,7 @@ namespace Xidi
           (uint8_t)EActuatorMode::Count <= 0b111,
           "Highest-valued force feedback actuator mode identifier does not fit into 3 bits.");
       static_assert(
-          (uint8_t)EAxis::Count <= 0b111,
+          (uint8_t)EAxis::Count <= 0b1111,
           "Highest-valued axis type identifier does not fit into 3 bits.");
       static_assert(
           (uint8_t)EAxisDirection::Count <= 0b111,
