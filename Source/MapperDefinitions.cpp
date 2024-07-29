@@ -43,7 +43,10 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B9),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B10),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B11),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12)}),
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12),
+             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
+             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
+            }),
         Mapper(
             L"DigitalGamepad",
             {.stickLeftX = std::make_unique<DigitalAxisMapper>(EAxis::X),

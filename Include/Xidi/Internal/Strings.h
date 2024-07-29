@@ -30,6 +30,7 @@
 #define XIDI_AXIS_NAME_RX                                "RotX Axis"
 #define XIDI_AXIS_NAME_RY                                "RotY Axis"
 #define XIDI_AXIS_NAME_RZ                                "RotZ Axis"
+#define XIDI_AXIS_NAME_SLIDER                            "Slider Axis"
 #define XIDI_AXIS_NAME_UNKNOWN                           "Unknown Axis"
 #define XIDI_BUTTON_NAME_FORMAT                          "Button %u"
 #define XIDI_POV_NAME                                    "POV"

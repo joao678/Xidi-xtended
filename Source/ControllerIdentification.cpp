@@ -51,6 +51,8 @@ namespace Xidi
     AxisRotX = 0x0033,
     AxisRotY = 0x0034,
     AxisRotZ = 0x0035,
+    Slider = 0x0036,
+    Dial = 0x0037,
     HatSwitch = 0x0039
   };
 
@@ -104,6 +106,12 @@ namespace Xidi
         break;
       case Controller::EAxis::RotZ:
         usageForAxis = (uint16_t)EHidUsageGeneralDesktop::AxisRotZ;
+        break;
+      case Controller::EAxis::Slider:
+        usageForAxis = (uint16_t)EHidUsageGeneralDesktop::Slider;
+        break;
+      case Controller::EAxis::Dial:
+        usageForAxis = (uint16_t)EHidUsageGeneralDesktop::Dial;
         break;
       default:
         break;
@@ -209,6 +217,12 @@ namespace Xidi
           case HidUsageDataForAxis(Controller::EAxis::RotZ).usage:
             return Controller::SElementIdentifier(
                 {.type = Controller::EElementType::Axis, .axis = Controller::EAxis::RotZ});
+          case HidUsageDataForAxis(Controller::EAxis::Slider).usage:
+            return Controller::SElementIdentifier(
+                {.type = Controller::EElementType::Axis, .axis = Controller::EAxis::Slider});
+          case HidUsageDataForAxis(Controller::EAxis::Dial).usage:
+            return Controller::SElementIdentifier(
+                {.type = Controller::EElementType::Axis, .axis = Controller::EAxis::Dial});
           case HidUsageDataForPov().usage:
             return Controller::SElementIdentifier({.type = Controller::EElementType::Pov});
           case HidUsageDataForVirtualController().usage:

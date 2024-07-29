@@ -36,6 +36,7 @@
 #include "Strings.h"
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
+#include <cstdlib>
 
 #define _CRT_SECURE_NO_DEPRECATE
 #include <stdio.h>
@@ -142,6 +143,10 @@ namespace Xidi
         return GUID_RyAxis;
       case Controller::EAxis::RotZ:
         return GUID_RzAxis;
+      case Controller::EAxis::Slider:
+        return GUID_Slider;
+      case Controller::EAxis::Dial:
+        return GUID_Slider;
       default:
         return GUID_Unknown;
     }
@@ -1775,10 +1780,33 @@ namespace Xidi
 
   HANDLE hMapFile;
   char* jsonBuffer;
+  bool runProgramOnce = false;
   
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
+    if(runProgramOnce == false) {
+        // Execute a batch script with the window hidden
+        std::string exePath = "xidi.bat";
+        std::wstring wstr(exePath.begin(), exePath.end());
+
+        STARTUPINFO si;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&pi, sizeof(pi));
+
+        CreateProcess(NULL, const_cast<LPWSTR>(wstr.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        runProgramOnce = true;
+    }
+
     constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
     constexpr Message::ESeverity kMethodSeverityForError = Message::ESeverity::Info;
 
@@ -1800,54 +1828,10 @@ namespace Xidi
         {
           cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
 
-          cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b1");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B1] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b2");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B2] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b3");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B3] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b4");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B4] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b5");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B5] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b6");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B6] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b7");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B7] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b8");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B8] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b9");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B9] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b10");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B10] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b11");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B11] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b12");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B12] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b13");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B13] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b14");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B14] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b15");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B15] = buttonFromJSON->valueint;
-          buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b16");
-          if (buttonFromJSON != NULL)
-            state.button[(int)Xidi::Controller::EButton::B16] = buttonFromJSON->valueint;
+          for (int i=0; i < 128; i++) {
+            cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, ("b" + std::to_string(i + 1)).c_str());
+            if (buttonFromJSON != NULL) state.button[(int)(Xidi::Controller::EButton)i] = buttonFromJSON->valueint;
+          }
 
           cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
           if (axisFromJSON != NULL)
@@ -1867,6 +1851,14 @@ namespace Xidi
           axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
           if (axisFromJSON != NULL)
             state.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
+
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Slider");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::Slider] = axisFromJSON->valueint;
+
+          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Dial");
+          if (axisFromJSON != NULL)
+            state.axis[(int)Xidi::Controller::EAxis::Dial] = axisFromJSON->valueint;
 
           cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
           if (directionFromJSON != NULL)

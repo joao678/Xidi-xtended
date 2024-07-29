@@ -67,6 +67,9 @@ namespace Xidi
       RotY,
       RotZ,
 
+      Slider,
+      Dial,
+
       /// Sentinel value, total number of enumerators
       Count
     };
@@ -106,6 +109,118 @@ namespace Xidi
       B14,
       B15,
       B16,
+      B17,
+      B18,
+      B19,
+      B20,
+      B21,
+      B22,
+      B23,
+      B24,
+      B25,
+      B26,
+      B27,
+      B28,
+      B29,
+      B30,
+      B31,
+      B32,
+      B33,
+      B34,
+      B35,
+      B36,
+      B37,
+      B38,
+      B39,
+      B40,
+      B41,
+      B42,
+      B43,
+      B44,
+      B45,
+      B46,
+      B47,
+      B48,
+      B49,
+      B50,
+      B51,
+      B52,
+      B53,
+      B54,
+      B55,
+      B56,
+      B57,
+      B58,
+      B59,
+      B60,
+      B61,
+      B62,
+      B63,
+      B64,
+      B65,
+      B66,
+      B67,
+      B68,
+      B69,
+      B70,
+      B71,
+      B72,
+      B73,
+      B74,
+      B75,
+      B76,
+      B77,
+      B78,
+      B79,
+      B80,
+      B81,
+      B82,
+      B83,
+      B84,
+      B85,
+      B86,
+      B87,
+      B88,
+      B89,
+      B90,
+      B91,
+      B92,
+      B93,
+      B94,
+      B95,
+      B96,
+      B97,
+      B98,
+      B99,
+      B100,
+      B101,
+      B102,
+      B103,
+      B104,
+      B105,
+      B106,
+      B107,
+      B108,
+      B109,
+      B110,
+      B111,
+      B112,
+      B113,
+      B114,
+      B115,
+      B116,
+      B117,
+      B118,
+      B119,
+      B120,
+      B121,
+      B122,
+      B123,
+      B124,
+      B125,
+      B126,
+      B127,
+      B128,
 
       /// Sentinel value, total number of enumerators
       Count
@@ -177,7 +292,7 @@ namespace Xidi
     struct SAxisCapabilities
     {
       /// Type of axis.
-      EAxis type : 3;
+      EAxis type : 6;
 
       /// Whether or not the axis supports force feedback.
       bool supportsForceFeedback : 1;
@@ -188,7 +303,7 @@ namespace Xidi
     static_assert(
         sizeof(SAxisCapabilities) == sizeof(EAxis), "Data structure size constraint violation.");
     static_assert(
-        static_cast<uint8_t>(EAxis::Count) <= 0b111,
+        static_cast<uint8_t>(EAxis::Count) <= 0b1111,
         "Highest-valued axis type identifier does not fit into 3 bits.");
 
     /// Capabilities of a Xidi virtual controller.
@@ -200,15 +315,14 @@ namespace Xidi
       /// application, all the axes on it are presented with contiguous indices. This array is used
       /// to map from DirectInput axis index to internal axis index.
       SAxisCapabilities axisCapabilities[static_cast<int>(EAxis::Count)];
-
       struct
       {
         /// Number of axes in the virtual controller, also the number of elements of the axis type
         /// array that are valid.
-        uint8_t numAxes : 3;
+        uint8_t numAxes : 8;
 
         /// Number of buttons present in the virtual controller.
-        uint8_t numButtons : 5;
+        uint8_t numButtons : 8;
       };
 
       /// Specifies whether or not the virtual controller has a POV. If it does, then the POV
@@ -338,11 +452,11 @@ namespace Xidi
       }
     };
 
-    static_assert(sizeof(SCapabilities) <= 8, "Data structure size constraint violation.");
+    static_assert(sizeof(SCapabilities) <= 68, "Data structure size constraint violation.");
     static_assert(
-        static_cast<uint8_t>(EAxis::Count) <= 0b111, "Number of axes does not fit into 3 bits.");
+        static_cast<uint8_t>(EAxis::Count) <= 0b1111, "Number of axes does not fit into 3 bits.");
     static_assert(
-        static_cast<uint8_t>(EButton::Count) <= 0b11111,
+        static_cast<uint8_t>(EButton::Count) <= 0b11111111,
         "Number of buttons does not fit into 5 bits.");
 
     /// Holds POV direction, which is presented both as an array of separate components and as a
@@ -425,7 +539,7 @@ namespace Xidi
       }
     };
 
-    static_assert(sizeof(SState) <= 32, "Data structure size constraint violation.");
+    static_assert(sizeof(SState) <= 56, "Data structure size constraint violation.");
 
     /// Enumerates possible statuses for physical controller devices.
     enum class EPhysicalDeviceStatus : uint8_t
