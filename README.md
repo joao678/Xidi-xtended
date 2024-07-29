@@ -157,6 +157,9 @@ dinput8.dll                         = C:\<path_to_devreorder>\dinput8_devreorder
 ```
 [Devreorder](https://github.com/briankendall/devreorder) is also recommended to hide other controllers such as the DualSense Wireless Controller as this controller also appears as a valid direcinput controller in some games (just make sure that the devreorder dll is renamed like in the .ini file above)
 
+# Program loading
+If you place a batch sript called ```xidi.bat``` in the same directory as the dinput/dinput8.dll, that file gets executed automatically, allowing for easy startup of programs that might feed data into xidi
+
 # TODO
 - Force feedback/vibration
 - More keyboard keys (there is a lot of possible keyboard keys in DirectInput and I need to find a smarter way to handle that)

