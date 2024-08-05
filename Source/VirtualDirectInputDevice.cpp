@@ -43,6 +43,8 @@
 
 #include "cJSON.h"
 
+#pragma comment(lib, "ws2_32.lib")
+
 #define BUF_SIZE 1000000
 
 /// Logs a DirectInput interface method invocation and returns.
@@ -1781,7 +1783,13 @@ namespace Xidi
   HANDLE hMapFile;
   char* jsonBuffer;
   bool runProgramOnce = false;
+  WSADATA wsaData;
+  SOCKET udpSocket;
+  WSAEVENT event;
+  sockaddr_in clientAddr;
+  int clientAddrLen = sizeof(clientAddr);
   
+
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
@@ -1803,6 +1811,22 @@ namespace Xidi
 
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
+
+        WSAStartup(MAKEWORD(2, 2), &wsaData);
+        udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+        sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(27015);
+        serverAddr.sin_addr.s_addr = INADDR_ANY;
+
+        bind(udpSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
+
+        u_long nonBlockingMode = 1;
+        ioctlsocket(udpSocket, FIONBIO, &nonBlockingMode);
+
+        event = WSACreateEvent();
+        WSAEventSelect(udpSocket, event, FD_READ | FD_CLOSE);
 
         runProgramOnce = true;
     }
@@ -1951,12 +1975,22 @@ namespace Xidi
 
       cJSON_Delete(jsonArray);
 
-      if (hMapFile == NULL)
-        hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
+      WSAWaitForMultipleEvents(WSA_MAXIMUM_WAIT_EVENTS, &event, FALSE, 0, FALSE);
 
-      UnmapViewOfFile(jsonBuffer);
-      jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
+        WSANETWORKEVENTS networkEvents;
+        WSAEnumNetworkEvents(udpSocket, event, &networkEvents);
 
+        if (networkEvents.lNetworkEvents & FD_READ)
+        {
+            char buffer[65507]; 
+            int bytesRead = recvfrom(udpSocket, buffer, 65507, 0, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
+
+            if (bytesRead > 0)
+            {
+                jsonBuffer = (char*)buffer;
+            }
+        }
+      
       writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
     }
     LOG_INVOCATION_AND_RETURN(
