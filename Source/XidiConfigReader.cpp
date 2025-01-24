@@ -125,6 +125,15 @@ namespace Xidi
               ConfigurationFileLayoutNameAndValueType(
                   Strings::kStrConfigurationSettingsWorkaroundsIgnoreEnumObjectsCallbackReturnCode,
                   EValueType::Boolean),
+              ConfigurationFileLayoutNameAndValueType(
+                  L"Linux",
+                  EValueType::Boolean),
+          }),
+      ConfigurationFileLayoutSection(
+          Strings::kStrConfigurationSectionNames,
+          {
+              ConfigurationFileLayoutNameAndValueType(
+                  Strings::kStrConfigurationSettingName, EValueType::String),
           }),
   };
 
@@ -375,14 +384,19 @@ namespace Xidi
         initFlag,
         []() -> void
         {
-          // Create the per-controller mapper settings types and submit them to the configuration
+          // Create the per-controller mapper and name settings types and submit them to the configuration
           // file layout. These are gernerated dynamically based on the number of controllers the
           // system supports.
           for (Controller::TControllerIdentifier i = 0; i < Controller::kPhysicalControllerCount;
-               ++i)
+               ++i) {
             configurationFileLayout[Strings::kStrConfigurationSectionMapper]
                                    [Strings::MapperTypeConfigurationNameString(i)] =
                                        EValueType::String;
+
+            configurationFileLayout[Strings::kStrConfigurationSectionNames]
+                                   [Strings::NameConfigurationNameString(i)] =
+                                       EValueType::String;
+            }
         });
   }
 

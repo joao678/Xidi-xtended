@@ -251,57 +251,12 @@ namespace Xidi
       DoesDirectInputControllerSupportXInput(
           EarliestIDirectInputType* dicontext, REFGUID instanceGUID, std::wstring* devicePath)
   {
-    bool deviceSupportsXInput = false;
-
-    EarliestIDirectInputDeviceType* didevice = nullptr;
-    HRESULT result = dicontext->CreateDevice(instanceGUID, &didevice, nullptr);
-
-    if (DI_OK != result)
-    {
-      Message::OutputFormatted(
-          Message::ESeverity::Error,
-          L"Unable to check if device with instance GUID %s supports XInput: Failed to create the device (result = 0x%08x).",
-          Strings::GuidToString(instanceGUID).AsCString(),
-          static_cast<unsigned int>(result));
-      return false;
-    }
-
-    DIPROPGUIDANDPATH devinfo = {
-        .diph = {
-                 .dwSize = sizeof(DIPROPGUIDANDPATH),
-                 .dwHeaderSize = sizeof(DIPROPGUIDANDPATH::diph),
-                 .dwHow = DIPH_DEVICE}
-    };
-
-    result = didevice->GetProperty(DIPROP_GUIDANDPATH, &devinfo.diph);
-    didevice->Release();
-
-    if (DI_OK != result)
-    {
-      Message::OutputFormatted(
-          Message::ESeverity::Error,
-          L"Unable to check if device with instance GUID %s supports XInput: Failed to query for property DIPROP_GUIDANDPATH (result = 0x%08x).",
-          Strings::GuidToString(instanceGUID).AsCString(),
-          static_cast<unsigned int>(result));
-      return false;
-    }
-
-    // The documented "best" way of determining if a device supports XInput is to look for
-    // "&IG_" in the device path string.
-    if (nullptr != wcsstr(devinfo.wszPath, L"&IG_") || nullptr != wcsstr(devinfo.wszPath, L"&ig_"))
-    {
-      deviceSupportsXInput = true;
-      if (nullptr != devicePath) *devicePath = devinfo.wszPath;
-    }
-
-    Message::OutputFormatted(
-        Message::ESeverity::Debug,
-        L"Device with instance GUID %s and path \"%s\" %s XInput.",
-        Strings::GuidToString(instanceGUID).AsCString(),
-        devinfo.wszPath,
-        (deviceSupportsXInput ? L"supports" : L"does not support"));
-
-    return deviceSupportsXInput;
+    // Here the original Xidi filters(hides) every xinput controller from device enumerations
+    // This is for games that look for controllers and display their names and use them to map controls etc...
+    // Here we deviate a bit more from the original xidi.
+    // Since xidi-xtended works as a API of sorts, we're completely ignoring xinput
+    // Therefore we hide EVERY controller instead of just xinput ones, so that only the virtual controllers are exposed to the application
+    return true;
   }
 
   template bool DoesDirectInputControllerSupportXInput<
@@ -411,10 +366,29 @@ namespace Xidi
     instanceInfo.guidInstance = VirtualControllerGuid(controllerId);
     instanceInfo.guidProduct = VirtualControllerGuid(controllerId);
     instanceInfo.dwDevType = DINPUT_DEVTYPE_XINPUT_GAMEPAD;
-    FillVirtualControllerName(
-        instanceInfo.tszInstanceName, _countof(instanceInfo.tszInstanceName), controllerId);
-    FillVirtualControllerName(
-        instanceInfo.tszProductName, _countof(instanceInfo.tszProductName), controllerId);
+
+    FillVirtualControllerName(instanceInfo.tszInstanceName, _countof(instanceInfo.tszInstanceName), controllerId);
+    FillVirtualControllerName(instanceInfo.tszProductName, _countof(instanceInfo.tszProductName), controllerId);
+
+    const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
+
+    if(configData.SectionExists(Xidi::Strings::kStrConfigurationSectionNames))
+    {
+        TemporaryString perControllerNameString;
+        
+        perControllerNameString.Clear();
+        perControllerNameString << Xidi::Strings::kStrConfigurationSettingName << Xidi::Strings::kCharConfigurationSettingSeparator << (1 + controllerId);
+
+        const auto& controllerNameSection = configData[Xidi::Strings::kStrConfigurationSectionNames];
+        std::wstring_view controllerName = controllerNameSection[perControllerNameString].FirstValue().GetStringValue();
+        if (true == controllerNameSection.NameExists(Strings::NameConfigurationNameString(controllerId))) {
+            char finalControllerName[MAX_PATH];
+            sprintf_s(finalControllerName, MAX_PATH, "%ws", controllerName.data());
+            
+            sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
+            sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
+        }
+    }
 
     // DirectInput versions 5 and higher include extra members in this structure, and this is
     // indicated on input using the size member of the structure.

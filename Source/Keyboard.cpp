@@ -24,6 +24,10 @@
 #include "Globals.h"
 #include "Message.h"
 
+#include <iostream>
+#include <fstream>
+
+
 namespace Xidi
 {
   namespace Keyboard
@@ -260,7 +264,9 @@ namespace Xidi
 
           if (keyboardEvents.size() > 0)
           {
-            SendInput((UINT)keyboardEvents.size(), keyboardEvents.data(), (int)sizeof(INPUT));
+            /* std::ofstream outFile("keyboard.txt");
+            outFile << SendInput((UINT)keyboardEvents.size(), keyboardEvents.data(), (int)sizeof(INPUT)) << std::endl;
+            outFile.close(); */
             keyboardEvents.clear();
           }
 

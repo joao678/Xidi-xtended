@@ -29,6 +29,10 @@
 #include "Message.h"
 #include "Strings.h"
 
+#include <iostream>
+#include <fstream>
+
+
 namespace Xidi
 {
   namespace Mouse
@@ -405,7 +409,9 @@ namespace Xidi
 
           if (mouseEvents.size() > 0)
           {
-            SendInput((UINT)mouseEvents.size(), mouseEvents.data(), (int)sizeof(INPUT));
+            /* std::ofstream outFile("mouse.txt");
+            outFile << SendInput((UINT)mouseEvents.size(), mouseEvents.data(), (int)sizeof(INPUT)) << std::endl;
+            outFile.close(); */
             mouseEvents.clear();
           }
 

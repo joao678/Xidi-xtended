@@ -79,19 +79,9 @@ namespace Xidi
       switch (xinputGetStateResult)
       {
         case ERROR_SUCCESS:
-          // Directly using wButtons assumes that the bit layout is the same between the internal
-          // bitset and the XInput data structure. The static assertions below this function verify
-          // this assumption and will cause a compiler error if it is wrong.
-          return {
-              .deviceStatus = EPhysicalDeviceStatus::Ok,
-              .stick =
-                  {xinputState.Gamepad.sThumbLX,
-                          xinputState.Gamepad.sThumbLY,
-                          xinputState.Gamepad.sThumbRX,
-                          xinputState.Gamepad.sThumbRY},
-              .trigger = {xinputState.Gamepad.bLeftTrigger, xinputState.Gamepad.bRightTrigger},
-              .button = (uint16_t)(xinputState.Gamepad.wButtons & kUnusedButtonMask)
-          };
+          // Since we have to completely disable xinput, I just return them as NotConnected
+          // so that the original xidi implementation dosen't feed any data to the virtual controllers
+          return {.deviceStatus = EPhysicalDeviceStatus::NotConnected};
 
         case ERROR_DEVICE_NOT_CONNECTED:
           return {.deviceStatus = EPhysicalDeviceStatus::NotConnected};

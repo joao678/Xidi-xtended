@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -36,17 +37,19 @@
 #include "Strings.h"
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
-#include <cstdlib>
 
 #define _CRT_SECURE_NO_DEPRECATE
 #include <stdio.h>
 
 #include "cJSON.h"
 
-#pragma comment(lib, "ws2_32.lib")
-
 #define BUF_SIZE 1000000
 
+#include <tchar.h>
+#include <tlhelp32.h>
+#include <windows.h>
+
+#include <iostream>
 /// Logs a DirectInput interface method invocation and returns.
 #define LOG_INVOCATION_AND_RETURN(result, severity)                                                        \
   do                                                                                                       \
@@ -152,6 +155,30 @@ namespace Xidi
       default:
         return GUID_Unknown;
     }
+  }
+
+  static void CustomFunction() {
+      DWORD oldProtect;
+      uintptr_t originalAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0xA8900", NULL, 16);
+      BYTE originalBytes[5] = { 0xE8, 0x0B, 0x0A, 0x09, 0x00 };
+
+      VirtualProtect((LPVOID)originalAddress, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
+      memcpy((void*)originalAddress, originalBytes, 5);
+      VirtualProtect((LPVOID)originalAddress, 5, oldProtect, &oldProtect);
+
+      uintptr_t funcAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0xA88F1", NULL, 16);
+      
+      VirtualProtect((LPVOID)funcAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
+      *(BYTE*)funcAddress = 0x74;
+      VirtualProtect((LPVOID)funcAddress, 1, oldProtect, &oldProtect);
+      
+      originalAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0x139310", NULL, 16);
+      __asm {
+          jmp originalAddress
+
+          // Return to the next instruction after the original call
+          //ret
+      }
   }
 
   /// Returns a human-readable string that represents the specified force feedback effect GUID.
@@ -1783,52 +1810,43 @@ namespace Xidi
   HANDLE hMapFile;
   char* jsonBuffer;
   bool runProgramOnce = false;
-  WSADATA wsaData;
-  SOCKET udpSocket;
-  WSAEVENT event;
-  sockaddr_in clientAddr;
-  int clientAddrLen = sizeof(clientAddr);
-  
 
   template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
       DWORD cbData, LPVOID lpvData)
   {
-    if(runProgramOnce == false) {
-        // Execute a batch script with the window hidden
-        std::string exePath = "xidi.bat";
-        std::wstring wstr(exePath.begin(), exePath.end());
+    if (runProgramOnce == false)
+    {
+      // Execute a batch script with the window hidden
+      std::string exePath = "xidi.bat";
+      std::wstring wstr(exePath.begin(), exePath.end());
 
-        STARTUPINFO si;
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_HIDE;
+      STARTUPINFO si;
+      ZeroMemory(&si, sizeof(si));
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESHOWWINDOW;
+      si.wShowWindow = SW_HIDE;
 
-        PROCESS_INFORMATION pi;
-        ZeroMemory(&pi, sizeof(pi));
+      PROCESS_INFORMATION pi;
+      ZeroMemory(&pi, sizeof(pi));
 
-        CreateProcess(NULL, const_cast<LPWSTR>(wstr.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+      CreateProcess(
+          NULL, const_cast<LPWSTR>(wstr.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
 
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
 
-        WSAStartup(MAKEWORD(2, 2), &wsaData);
-        udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+      runProgramOnce = true;
 
-        sockaddr_in serverAddr;
-        serverAddr.sin_family = AF_INET;
-        serverAddr.sin_port = htons(27015);
-        serverAddr.sin_addr.s_addr = INADDR_ANY;
+      const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
 
-        bind(udpSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-
-        u_long nonBlockingMode = 1;
-        ioctlsocket(udpSocket, FIONBIO, &nonBlockingMode);
-
-        event = WSACreateEvent();
-        WSAEventSelect(udpSocket, event, FD_READ | FD_CLOSE);
-
-        runProgramOnce = true;
+      if (configData[Xidi::Strings::kStrConfigurationSectionWorkarounds].GetFirstBooleanValue(
+              L"Linux"))
+      {
+        HANDLE createdFileMap = CreateFileMapping(
+            INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1000000, TEXT("Local\\XidiControllers"));
+        char* pBuf = (char*)MapViewOfFile(createdFileMap, FILE_MAP_WRITE, 0, 0, 1000000);
+        snprintf(pBuf, strlen("_xidi_") + 1, "_xidi_");
+      }
     }
 
     constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
@@ -1845,16 +1863,19 @@ namespace Xidi
       Xidi::Controller::SState state = controller->GetState();
 
       cJSON* jsonArray = cJSON_Parse(jsonBuffer);
-      
+
       if (cJSON_GetErrorPtr() == NULL)
       {
         if (jsonArray != NULL)
         {
           cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
 
-          for (int i=0; i < 128; i++) {
-            cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, ("b" + std::to_string(i + 1)).c_str());
-            if (buttonFromJSON != NULL) state.button[(int)(Xidi::Controller::EButton)i] = buttonFromJSON->valueint;
+          for (int i = 0; i < 128; i++)
+          {
+            cJSON* buttonFromJSON =
+                cJSON_GetObjectItemCaseSensitive(jsonObject, ("b" + std::to_string(i + 1)).c_str());
+            if (buttonFromJSON != NULL)
+              state.button[(int)(Xidi::Controller::EButton)i] = buttonFromJSON->valueint;
           }
 
           cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
@@ -1928,7 +1949,8 @@ namespace Xidi
             {
               cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
               if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
+                isCurrentKeyPressed->valueint
+                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
                     : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Left);
 
               isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
@@ -1953,7 +1975,8 @@ namespace Xidi
               if (isCurrentKeyPressed != NULL)
                 isCurrentKeyPressed->valueint
                     ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Middle)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Middle);
+                    : Xidi::Mouse::SubmitMouseButtonReleasedState(
+                          Xidi::Mouse::EMouseButton::Middle);
 
               cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
               if (mouseMove->valueint != 0)
@@ -1964,10 +1987,38 @@ namespace Xidi
                 Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
 
                 cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
-                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
+                Xidi::Mouse::SubmitMouseMovement(
+                    Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
                 cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
-                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
-              }   
+                Xidi::Mouse::SubmitMouseMovement(
+                    Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
+              }
+            }
+
+            if (controller->GetIdentifier() == 0)
+            {
+              cJSON* functionAddressesArray = cJSON_GetObjectItem(jsonObject, "functions");
+
+              if (functionAddressesArray != NULL)
+              {
+                for (int i = 0; i < cJSON_GetArraySize(functionAddressesArray); ++i)
+                {
+                  cJSON* currentFunction = cJSON_GetArrayItem(functionAddressesArray, i);
+                  cJSON* address = cJSON_GetObjectItemCaseSensitive(currentFunction, "address");
+                  cJSON* activated = cJSON_GetObjectItemCaseSensitive(currentFunction, "activated");
+
+                  if (cJSON_IsTrue(activated))
+                  {
+                    uintptr_t offset = strtoul(address->valuestring, NULL, 16);
+                    uintptr_t funcAddress = (uintptr_t)GetModuleHandleA(NULL) + offset;
+
+                    DWORD oldProtect;
+                    VirtualProtect((LPVOID)funcAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
+                    *(BYTE*)funcAddress = 0x75;
+                    VirtualProtect((LPVOID)funcAddress, 1, oldProtect, &oldProtect);
+                  }
+                }
+              }
             }
           }
         }
@@ -1975,22 +2026,12 @@ namespace Xidi
 
       cJSON_Delete(jsonArray);
 
-      WSAWaitForMultipleEvents(WSA_MAXIMUM_WAIT_EVENTS, &event, FALSE, 0, FALSE);
+      if (hMapFile == NULL)
+        hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
 
-        WSANETWORKEVENTS networkEvents;
-        WSAEnumNetworkEvents(udpSocket, event, &networkEvents);
+      UnmapViewOfFile(jsonBuffer);
+      jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
 
-        if (networkEvents.lNetworkEvents & FD_READ)
-        {
-            char buffer[65507]; 
-            int bytesRead = recvfrom(udpSocket, buffer, 65507, 0, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
-
-            if (bytesRead > 0)
-            {
-                jsonBuffer = (char*)buffer;
-            }
-        }
-      
       writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
     }
     LOG_INVOCATION_AND_RETURN(
