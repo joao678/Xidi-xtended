@@ -1995,6 +1995,7 @@ namespace Xidi
               }
             }
 
+            /* TODO
             if (controller->GetIdentifier() == 0)
             {
               cJSON* functionAddressesArray = cJSON_GetObjectItem(jsonObject, "functions");
@@ -2019,7 +2020,7 @@ namespace Xidi
                   }
                 }
               }
-            }
+            } */
           }
         }
       }
