@@ -1838,14 +1838,13 @@ namespace Xidi
       runProgramOnce = true;
 
       const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
-
-      if (configData[Xidi::Strings::kStrConfigurationSectionWorkarounds].GetFirstBooleanValue(
-              L"Linux"))
-      {
-        HANDLE createdFileMap = CreateFileMapping(
-            INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1000000, TEXT("Local\\XidiControllers"));
-        char* pBuf = (char*)MapViewOfFile(createdFileMap, FILE_MAP_WRITE, 0, 0, 1000000);
-        snprintf(pBuf, strlen("_xidi_") + 1, "_xidi_");
+      
+      if(configData.SectionExists(Xidi::Strings::kStrConfigurationSectionWorkarounds)) {
+        if (configData[Xidi::Strings::kStrConfigurationSectionWorkarounds].GetFirstBooleanValue(Xidi::Strings::kStrConfigurationSettingsWorkaroundsLinux).value_or(false)) {
+          HANDLE createdFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1000000, TEXT("Local\\XidiControllers"));
+          char* pBuf = (char*)MapViewOfFile(createdFileMap, FILE_MAP_WRITE, 0, 0, 1000000);
+          snprintf(pBuf, strlen("_xidi_") + 1, "_xidi_");
+        }
       }
     }
 

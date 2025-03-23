@@ -205,6 +205,12 @@ namespace Xidi
         kStrConfigurationSettingsWorkaroundsIgnoreEnumObjectsCallbackReturnCode =
             L"IgnoreEnumObjectsCallbackReturnCode";
 
+    /// Configuration file setting for a workaround that tells if xidi is running on linux
+    /// If true, use alternative methods to communicate with the memory mapped file, else just run as normal
+    inline constexpr std::wstring_view
+    kStrConfigurationSettingsWorkaroundsLinux =
+        L"Linux";
+
     // These strings are not safe to access before run-time, and should not be used to perform
     // dynamic initialization. Views are guaranteed to be null-terminated.
 

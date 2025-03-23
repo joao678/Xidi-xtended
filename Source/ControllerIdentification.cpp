@@ -372,22 +372,26 @@ namespace Xidi
 
     const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
 
-    if(configData.SectionExists(Xidi::Strings::kStrConfigurationSectionNames))
-    {
-        TemporaryString perControllerNameString;
-        
-        perControllerNameString.Clear();
-        perControllerNameString << Xidi::Strings::kStrConfigurationSettingName << Xidi::Strings::kCharConfigurationSettingSeparator << (1 + controllerId);
+    char finalControllerName[MAX_PATH];
 
-        const auto& controllerNameSection = configData[Xidi::Strings::kStrConfigurationSectionNames];
+    TemporaryString perControllerNameString;
+    
+    perControllerNameString.Clear();
+    perControllerNameString << Xidi::Strings::kStrConfigurationSettingName << Xidi::Strings::kCharConfigurationSettingSeparator << (1 + controllerId);
+
+    const auto& controllerNameSection = configData[Xidi::Strings::kStrConfigurationSectionNames];
+    if (
+        true == configData.SectionExists(Xidi::Strings::kStrConfigurationSectionNames) && 
+        true == controllerNameSection.NameExists(Strings::NameConfigurationNameString(controllerId))
+    ) {
         std::wstring_view controllerName = controllerNameSection[perControllerNameString].FirstValue().GetStringValue();
-        if (true == controllerNameSection.NameExists(Strings::NameConfigurationNameString(controllerId))) {
-            char finalControllerName[MAX_PATH];
-            sprintf_s(finalControllerName, MAX_PATH, "%ws", controllerName.data());
-            
-            sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
-            sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
-        }
+        sprintf_s(finalControllerName, MAX_PATH, "%ws", controllerName.data());
+        sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
+        sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
+    } else {
+        sprintf_s(finalControllerName, MAX_PATH, "%ws%d", L"Xidi ", controllerId);
+        sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
+        sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
     }
 
     // DirectInput versions 5 and higher include extra members in this structure, and this is
