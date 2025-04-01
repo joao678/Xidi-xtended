@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file VirtualController.cpp
  *   Implementation of a complete virtual controller.
@@ -15,11 +15,12 @@
 #include <stop_token>
 #include <thread>
 
+#include <Infra/Core/Message.h>
+
 #include "ControllerTypes.h"
 #include "ForceFeedbackTypes.h"
 #include "ImportApiWinMM.h"
 #include "Mapper.h"
-#include "Message.h"
 #include "PhysicalController.h"
 
 namespace Xidi
@@ -199,8 +200,8 @@ namespace Xidi
           initialState,
           physicalControllerMonitorStop.get_token());
 
-      Message::OutputFormatted(
-          Message::ESeverity::Info,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Info,
           L"Created virtual controller object with identifier %u.",
           (1 + kControllerIdentifier));
     }
@@ -212,8 +213,8 @@ namespace Xidi
       physicalControllerMonitorStop.request_stop();
       physicalControllerMonitor.join();
 
-      Message::OutputFormatted(
-          Message::ESeverity::Info,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Info,
           L"Destroyed virtual controller object with identifier %u.",
           (1 + kControllerIdentifier));
     }

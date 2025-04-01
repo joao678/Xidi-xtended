@@ -3,18 +3,18 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MockKeyboard.cpp
  *   Implementation of a mock version of the keyboard interface along with additional
  *   testing-specific functions.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "MockKeyboard.h"
 
 #include <mutex>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ControllerTypes.h"
 

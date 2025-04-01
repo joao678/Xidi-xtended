@@ -3,19 +3,20 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file DataFormatTest.cpp
  *   Unit tests for functionality related to interacting with DirectInput applications using
  *   their own specified data formats.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "DataFormat.h"
 
 #include <memory>
 #include <optional>
+
+#include <Infra/Test/TestCase.h>
+#include <Infra/Test/Utilities.h>
 
 #include "ApiDirectInput.h"
 #include "ControllerTypes.h"
@@ -320,7 +321,7 @@ namespace XidiTest
 
       if (actualPovValue != expectedPovValue)
       {
-        PrintFormatted(
+        Infra::Test::PrintFormatted(
             L"Wrong POV direction for states up=%s down=%s left=%s right=%s (expected %d, got %d).",
             ((true == povTestData.povUp) ? L"true" : L"false"),
             ((true == povTestData.povDown) ? L"true" : L"false"),
@@ -464,7 +465,8 @@ namespace XidiTest
           break;
 
         case EElementType::Button:
-          *((TButtonValue*)(((size_t)&expectedDataPacket) + (size_t)testObjectFormatSpec[i].dwOfs)) =
+          *((TButtonValue*)(((size_t)&expectedDataPacket) +
+                            (size_t)testObjectFormatSpec[i].dwOfs)) =
               ((true == kTestControllerState[testElement.button])
                    ? DataFormat::kButtonValuePressed
                    : DataFormat::kButtonValueNotPressed);
@@ -838,10 +840,9 @@ namespace XidiTest
   }
 
   // Tests a simple data packet with two axis values, where the specific axis types are specified by
-  // GUID and have an index number, which based on implementation assumptions described in
-  // "DataFormat.cpp" must be 0. Axis objects are declared in the object specification in increasing
-  // offset order. However, because specific axis types are specified, there is no impact on the
-  // assignment of axes to offsets.
+  // GUID and have an index number. Axis objects are declared in the object specification in
+  // increasing offset order. However, because specific axis types are specified, there is no impact
+  // on the assignment of axes to offsets.
   TEST_CASE(DataFormat_CreateSuccess_AxisSpecificByGuidAndIndexAscending)
   {
     struct STestDataPacket
@@ -858,7 +859,7 @@ namespace XidiTest
     DIOBJECTDATAFORMAT testObjectFormatSpec[] = {
         {.pguid = &GUID_RzAxis,
          .dwOfs = offsetof(STestDataPacket, axisValue1),
-         .dwType = DIDFT_AXIS | DIDFT_MAKEINSTANCE(0),
+         .dwType = DIDFT_AXIS | DIDFT_MAKEINSTANCE(3),
          .dwFlags = DIDOI_ASPECTPOSITION},
         {.pguid = &GUID_XAxis,
          .dwOfs = offsetof(STestDataPacket, axisValue2),
@@ -912,7 +913,7 @@ namespace XidiTest
          .dwFlags = DIDOI_ASPECTPOSITION},
         {.pguid = &GUID_RzAxis,
          .dwOfs = offsetof(STestDataPacket, axisValue1),
-         .dwType = DIDFT_AXIS | DIDFT_MAKEINSTANCE(0),
+         .dwType = DIDFT_AXIS | DIDFT_MAKEINSTANCE(3),
          .dwFlags = 0}};
 
     const DIDATAFORMAT kTestFormatSpec = {
@@ -963,12 +964,12 @@ namespace XidiTest
          .dwFlags = 0}, // GUID requests an axis type not present in the virtual controller
         {.pguid = &GUID_YAxis,
          .dwOfs = offsetof(STestDataPacket, axisValue3),
-         .dwType = DIDFT_OPTIONAL | DIDFT_AXIS | DIDFT_MAKEINSTANCE(1),
+         .dwType = DIDFT_OPTIONAL | DIDFT_AXIS | DIDFT_MAKEINSTANCE(40),
          .dwFlags =
              0}, // GUID requests an axis type that is present, but instance index is out of bounds
         {.pguid = nullptr,
          .dwOfs = offsetof(STestDataPacket, axisValue1),
-         .dwType = DIDFT_OPTIONAL | DIDFT_AXIS | DIDFT_MAKEINSTANCE(8),
+         .dwType = DIDFT_OPTIONAL | DIDFT_AXIS | DIDFT_MAKEINSTANCE(18),
          .dwFlags = 0} // No GUID type filter, and instance index is out of bounds
     };
 

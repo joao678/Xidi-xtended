@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MapperDefinitions.cpp
  *   Definitions of all known mapper types.
@@ -43,10 +43,7 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B9),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B10),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B11),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12),
-             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
-             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
-            }),
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12)}),
         Mapper(
             L"DigitalGamepad",
             {.stickLeftX = std::make_unique<DigitalAxisMapper>(EAxis::X),
@@ -68,10 +65,7 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B9),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B10),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B11),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12),
-             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
-             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
-            }),
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B12)}),
         Mapper(
             L"ExtendedGamepad",
             {.stickLeftX = std::make_unique<AxisMapper>(EAxis::X),
@@ -93,10 +87,7 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B7),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B8),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B9),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10),
-             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
-             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
-            }),
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10)}),
 
         Mapper(
             L"XInputNative",
@@ -119,10 +110,7 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B7),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B8),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B9),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10),
-             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
-             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
-            }),
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10)}),
         Mapper(
             L"XInputSharedTriggers",
             {.stickLeftX = std::make_unique<AxisMapper>(EAxis::X),
@@ -144,9 +132,6 @@ namespace Xidi
              .buttonBack = std::make_unique<ButtonMapper>(EButton::B7),
              .buttonStart = std::make_unique<ButtonMapper>(EButton::B8),
              .buttonLS = std::make_unique<ButtonMapper>(EButton::B9),
-             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10),
-             .slider = std::make_unique<AxisMapper>(EAxis::Slider),
-             .dial = std::make_unique<AxisMapper>(EAxis::Dial),
-            })};
+             .buttonRS = std::make_unique<ButtonMapper>(EButton::B10)})};
   } // namespace Controller
 } // namespace Xidi

@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file Keyboard.cpp
  *   Implementation of virtual keyboard event functionality, which allows
@@ -18,15 +18,12 @@
 #include <thread>
 #include <vector>
 
+#include <Infra/Core/Message.h>
+
 #include "ApiBitSet.h"
 #include "ApiWindows.h"
 #include "ControllerTypes.h"
 #include "Globals.h"
-#include "Message.h"
-
-#include <iostream>
-#include <fstream>
-
 
 namespace Xidi
 {
@@ -264,9 +261,7 @@ namespace Xidi
 
           if (keyboardEvents.size() > 0)
           {
-            /* std::ofstream outFile("keyboard.txt");
-            outFile << SendInput((UINT)keyboardEvents.size(), keyboardEvents.data(), (int)sizeof(INPUT)) << std::endl;
-            outFile.close(); */
+            SendInput((UINT)keyboardEvents.size(), keyboardEvents.data(), (int)sizeof(INPUT));
             keyboardEvents.clear();
           }
 
@@ -302,8 +297,8 @@ namespace Xidi
           []() -> void
           {
             keyboardUpdateThread.Start();
-            Message::OutputFormatted(
-                Message::ESeverity::Info,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Info,
                 L"Initialized the keyboard event thread. Desired update period is %u ms.",
                 kKeyboardUpdatePeriodMilliseconds);
           });

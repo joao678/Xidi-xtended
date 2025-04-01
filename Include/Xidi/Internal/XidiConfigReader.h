@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file XidiConfigReader.h
  *   Declaration of Xidi-specific configuration reading functionality.
@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "Configuration.h"
+#include <Infra/Core/Configuration.h>
 
 #ifndef XIDI_SKIP_MAPPERS
 #include "MapperBuilder.h"
@@ -21,7 +21,7 @@
 
 namespace Xidi
 {
-  using namespace ::Xidi::Configuration;
+  using namespace ::Infra::Configuration;
 
   class XidiConfigReader : public ConfigurationFileReader
   {
@@ -44,12 +44,12 @@ namespace Xidi
   protected:
 
     // ConfigurationFileReader
-    EAction ActionForSection(std::wstring_view section) override;
-    EAction ActionForValue(
+    Action ActionForSection(std::wstring_view section) override;
+    Action ActionForValue(
         std::wstring_view section, std::wstring_view name, TIntegerView value) override;
-    EAction ActionForValue(
+    Action ActionForValue(
         std::wstring_view section, std::wstring_view name, TBooleanView value) override;
-    EAction ActionForValue(
+    Action ActionForValue(
         std::wstring_view section, std::wstring_view name, TStringView value) override;
     void BeginRead(void) override;
     void EndRead(void) override;

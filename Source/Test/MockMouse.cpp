@@ -3,19 +3,19 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MockMouse.cpp
  *   Implementation of a mock version of the mouse interface along with additional
  *   testing-specific functions.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "MockMouse.h"
 
 #include <mutex>
 #include <unordered_map>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ControllerTypes.h"
 

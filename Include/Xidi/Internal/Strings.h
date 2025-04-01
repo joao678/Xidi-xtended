@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file Strings.h
  *   Declaration of common strings and functions to manipulate them.
@@ -20,38 +20,39 @@
 #include <string>
 #include <string_view>
 
+#include <Infra/Core/TemporaryBuffer.h>
+
 #include "ControllerTypes.h"
-#include "TemporaryBuffer.h"
 
 // Strings that need to be available in multiple formats (ASCII and Unicode).
-#define XIDI_AXIS_NAME_X                                 "X Axis"
-#define XIDI_AXIS_NAME_Y                                 "Y Axis"
-#define XIDI_AXIS_NAME_Z                                 "Z Axis"
-#define XIDI_AXIS_NAME_RX                                "RotX Axis"
-#define XIDI_AXIS_NAME_RY                                "RotY Axis"
-#define XIDI_AXIS_NAME_RZ                                "RotZ Axis"
-#define XIDI_AXIS_NAME_SLIDER                            "Slider Axis"
-#define XIDI_AXIS_NAME_UNKNOWN                           "Unknown Axis"
-#define XIDI_BUTTON_NAME_FORMAT                          "Button %u"
-#define XIDI_POV_NAME                                    "POV"
-#define XIDI_WHOLE_CONTROLLER_NAME                       "Whole Controller"
-#define XIDI_EFFECT_NAME_CONSTANT_FORCE                  "Constant Force"
-#define XIDI_EFFECT_NAME_RAMP_FORCE                      "Ramp Force"
-#define XIDI_EFFECT_NAME_SQUARE                          "Square Wave"
-#define XIDI_EFFECT_NAME_SINE                            "Sine Wave"
-#define XIDI_EFFECT_NAME_TRIANGLE                        "Triangle Wave"
-#define XIDI_EFFECT_NAME_SAWTOOTH_UP                     "Sawtooth Up"
-#define XIDI_EFFECT_NAME_SAWTOOTH_DOWN                   "Sawtooth Down"
-#define XIDI_EFFECT_NAME_CUSTOM_FORCE                    "Custom Force"
+#define XIDI_AXIS_NAME_X                                       "X Axis"
+#define XIDI_AXIS_NAME_Y                                       "Y Axis"
+#define XIDI_AXIS_NAME_Z                                       "Z Axis"
+#define XIDI_AXIS_NAME_RX                                      "RotX Axis"
+#define XIDI_AXIS_NAME_RY                                      "RotY Axis"
+#define XIDI_AXIS_NAME_RZ                                      "RotZ Axis"
+#define XIDI_AXIS_NAME_UNKNOWN                                 "Unknown Axis"
+#define XIDI_BUTTON_NAME_FORMAT                                "Button %u"
+#define XIDI_POV_NAME                                          "POV"
+#define XIDI_WHOLE_CONTROLLER_NAME                             "Whole Controller"
+#define XIDI_EFFECT_NAME_CONSTANT_FORCE                        "Constant Force"
+#define XIDI_EFFECT_NAME_RAMP_FORCE                            "Ramp Force"
+#define XIDI_EFFECT_NAME_SQUARE                                "Square Wave"
+#define XIDI_EFFECT_NAME_SINE                                  "Sine Wave"
+#define XIDI_EFFECT_NAME_TRIANGLE                              "Triangle Wave"
+#define XIDI_EFFECT_NAME_SAWTOOTH_UP                           "Sawtooth Up"
+#define XIDI_EFFECT_NAME_SAWTOOTH_DOWN                         "Sawtooth Down"
+#define XIDI_EFFECT_NAME_CUSTOM_FORCE                          "Custom Force"
 
 // String prefixes and suffixes that need to be consumed as they are but also combined into longer
 // literals. All exist as wide-character strings only.
-#define XIDI_CONFIG_PROPERTIES_PREFIX_DEADZONE_PERCENT   L"DeadzonePercent"
-#define XIDI_CONFIG_PROPERTIES_PREFIX_SATURATION_PERCENT L"SaturationPercent"
-#define XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_LEFT         L"StickLeft"
-#define XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_RIGHT        L"StickRight"
-#define XIDI_CONFIG_PROPERTIES_SUFFIX_TRIGGER_LT         L"TriggerLT"
-#define XIDI_CONFIG_PROPERTIES_SUFFIX_TRIGGER_RT         L"TriggerRT"
+#define XIDI_CONFIG_PROPERTIES_PREFIX_CIRCLE_TO_SQUARE_PERCENT L"CircleToSquarePercent"
+#define XIDI_CONFIG_PROPERTIES_PREFIX_DEADZONE_PERCENT         L"DeadzonePercent"
+#define XIDI_CONFIG_PROPERTIES_PREFIX_SATURATION_PERCENT       L"SaturationPercent"
+#define XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_LEFT               L"StickLeft"
+#define XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_RIGHT              L"StickRight"
+#define XIDI_CONFIG_PROPERTIES_SUFFIX_TRIGGER_LT               L"TriggerLT"
+#define XIDI_CONFIG_PROPERTIES_SUFFIX_TRIGGER_RT               L"TriggerRT"
 
 namespace Xidi
 {
@@ -121,6 +122,13 @@ namespace Xidi
     /// of virtual controllers.
     inline constexpr std::wstring_view kStrConfigurationSectionProperties = L"Properties";
 
+    /// Configuration file setting for customizing the force feedback effect strength. Expressed as
+    /// a percentage that is used to scale the final effect values sent to the controller hardware.
+    /// This can be used to reduce, but not amplify, the strength of force feedback effects.
+    inline constexpr std::wstring_view
+        kStrConfigurationSettingPropertiesForceFeedbackEffectStrengthPercent =
+            L"ForceFeedbackEffectStrengthPercent";
+
     /// Configuration file setting for customizing the mouse speed. Expressed as a percentage that
     /// is used to scale the default mouse speed.
     inline constexpr std::wstring_view
@@ -131,6 +139,22 @@ namespace Xidi
     /// saturation, which are used for interfaces that do not normally allow for customization.
     inline constexpr std::wstring_view kStrConfigurationSettingsPropertiesUseBuiltinProperties =
         L"UseBuiltInProperties";
+
+    /// Configuration file setting for correcting the left analog stick's circular field of motion
+    /// to a square field of motion, expressed as a percent of the maximum possible amount of
+    /// correction (perfect circle to perfect square).
+    inline constexpr std::wstring_view
+        kStrConfigurationSettingsPropertiesCircleToSquarePercentStickLeft =
+            XIDI_CONFIG_PROPERTIES_PREFIX_CIRCLE_TO_SQUARE_PERCENT
+                XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_LEFT;
+
+    /// Configuration file setting for correcting the right analog stick's circular field of motion
+    /// to a square field of motion, expressed as a percent of the maximum possible amount of
+    /// correction (perfect circle to perfect square).
+    inline constexpr std::wstring_view
+        kStrConfigurationSettingsPropertiesCircleToSquarePercentStickRight =
+            XIDI_CONFIG_PROPERTIES_PREFIX_CIRCLE_TO_SQUARE_PERCENT
+                XIDI_CONFIG_PROPERTIES_SUFFIX_STICK_RIGHT;
 
     /// Configuration file setting for adding extra deadzone to the left analog stick, expressed as
     /// a percentage of the analog range.
@@ -211,83 +235,42 @@ namespace Xidi
     kStrConfigurationSettingsWorkaroundsLinux =
         L"Linux";
 
+    /// Configuration file setting for a workaround that causes Xidi to use the short-form names for
+    /// virtual controllers when providing the "friendly" name to the application. Useful for
+    /// applications that truncate the "friendly" name after a small number of characters.
+    inline constexpr std::wstring_view
+        kStrConfigurationSettingsWorkaroundsUseShortVirtualControllerNames =
+            L"UseShortVirtualControllerNames";
+
     // These strings are not safe to access before run-time, and should not be used to perform
     // dynamic initialization. Views are guaranteed to be null-terminated.
 
-    /// Product name.
-    /// Use this to identify Xidi in areas of user interaction.
-    extern const std::wstring_view kStrProductName;
-
     /// Form name.
     /// Use this to identify Xidi's form (dinput, dinput8, winmm) in areas of user interaction.
-    extern const std::wstring_view kStrFormName;
-
-    /// Complete path and filename of the currently-running executable.
-    extern const std::wstring_view kStrExecutableCompleteFilename;
-
-    /// Base name of the currently-running executable.
-    extern const std::wstring_view kStrExecutableBaseName;
-
-    /// Directory name of the currently-running executable, including trailing backslash if
-    /// available.
-    extern const std::wstring_view kStrExecutableDirectoryName;
-
-    /// Complete path and filename of the currently-running form of Xidi.
-    extern const std::wstring_view kStrXidiCompleteFilename;
-
-    /// Base name of the currently-running form of Xidi.
-    extern const std::wstring_view kStrXidiBaseName;
-
-    /// Directory name of the currently-running form of Xidi, including trailing backslash if
-    /// available.
-    extern const std::wstring_view kStrXidiDirectoryName;
+    std::wstring_view GetFormName(void);
 
     /// Directory name in which system-supplied libraries are found.
-    extern const std::wstring_view kStrSystemDirectoryName;
+    std::wstring_view GetSystemDirectoryName(void);
 
     /// Complete path and filename of the system-supplied DirectInput library.
-    extern const std::wstring_view kStrSystemLibraryFilenameDirectInput;
+    std::wstring_view GetSystemLibraryFilenameDirectInput(void);
 
     /// Complete path and filename of the system-supplied DirectInput8 library.
-    extern const std::wstring_view kStrSystemLibraryFilenameDirectInput8;
+    std::wstring_view GetSystemLibraryFilenameDirectInput8(void);
 
     /// Complete path and filename of the system-supplied WinMM library.
-    extern const std::wstring_view kStrSystemLibraryFilenameWinMM;
-
-    /// Expected filename of a configuration file.
-    /// Xidi configuration filename = (Xidi directory)\Xidi.ini
-    extern const std::wstring_view kStrConfigurationFilename;
-
-    /// Expected filename for the log file.
-    /// Xidi log filename = (current user's desktop)\Xidi_(Xidi Form)_(base name of the running
-    /// executable)_(process ID).log
-    extern const std::wstring_view kStrLogFilename;
+    std::wstring_view GetSystemLibraryFilenameWinMM(void);
 
     /// Returns a string representing the specified axis type.
     /// @param [in] axis Axis type for which a string is requested.
     /// @return String representation of the axis type.
     const wchar_t* AxisTypeString(Controller::EAxis axis);
 
-    /// Compares two strings without regard for the case of each individual character.
-    /// @tparam CharType Type of character in each string, either narrow or wide.
-    /// @param [in] strA First string in the comparison.
-    /// @param [in] strB Second string in the comparison.
-    /// @return `true` if the strings compare equal, `false` otherwise.
-    template <typename CharType> bool EqualsCaseInsensitive(
-        std::basic_string_view<CharType> strA, std::basic_string_view<CharType> strB);
-
-    /// Formats a string and returns the result in a newly-allocated null-terminated temporary
-    /// buffer.
-    /// @param [in] format Format string, possibly with format specifiers which must be matched with
-    /// the arguments that follow.
-    /// @return Resulting string after all formatting is applied.
-    TemporaryString FormatString(_Printf_format_string_ const wchar_t* format, ...);
-
     /// Generates a string representation of a GUID, in the format
     /// "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}" where X is a hexadecimal digit.
     /// @param guid GUID for which a string is desired.
     /// @return Resulting string representation for the specified GUID.
-    TemporaryString GuidToString(const GUID& guid);
+    Infra::TemporaryString GuidToString(const GUID& guid);
 
     /// Retrieves a string used to represent a per-controller mapper type configuration setting.
     /// These are initialized on first invocation and returned subsequently as read-only views.
@@ -306,34 +289,5 @@ namespace Xidi
     /// identifier is out of range.
     std::wstring_view NameConfigurationNameString(
         Controller::TControllerIdentifier controllerIdentifier);
-
-    /// Splits a string using the specified delimiter string and returns a list of views each
-    /// corresponding to a part of the input string. If there are too many delimiters present such
-    /// that not all of the pieces can fit into the returned container type then the returned
-    /// container will be empty. Otherwise the returned container will contain at least one element.
-    /// @param [in] stringToSplit Input string to be split.
-    /// @param [in] delimiter Delimiter character sequence that identifies boundaries between pieces
-    /// of the input string.
-    /// @return Container that holds views referring to pieces of the input string split using the
-    /// specified delimiter.
-    TemporaryVector<std::wstring_view> SplitString(
-        std::wstring_view stringToSplit, std::wstring_view delimiter);
-
-    /// Splits a string using the specified delimiter strings and returns a list of views each
-    /// corresponding to a part of the input string. If there are too many delimiters present such
-    /// that not all of the pieces can fit into the returned container type then the returned
-    /// container will be empty. Otherwise the returned container will contain at least one element.
-    /// @param [in] stringToSplit Input string to be split.
-    /// @param [in] delimiters Delimiter character sequences each of which identifies a boundary
-    /// between pieces of the input string.
-    /// @return Container that holds views referring to pieces of the input string split using the
-    /// specified delimiter.
-    TemporaryVector<std::wstring_view> SplitString(
-        std::wstring_view stringToSplit, std::initializer_list<std::wstring_view> delimiters);
-
-    /// Generates a string representation of a system error code.
-    /// @param [in] systemErrorCode System error code for which to generate a string.
-    /// @return String representation of the system error code.
-    TemporaryString SystemErrorCodeString(const unsigned long systemErrorCode);
   } // namespace Strings
 } // namespace Xidi

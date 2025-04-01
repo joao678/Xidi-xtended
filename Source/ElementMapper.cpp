@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ElementMapper.cpp
  *   Implementation of functionality used to implement mappings from individual XInput controller
@@ -390,10 +390,9 @@ namespace Xidi
     {
       static const bool kEnableMouseAxisProperites =
           Globals::GetConfigurationData()
-              .GetFirstBooleanValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties)
-              .value_or(true);
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties]
+                  .ValueOr(true);
 
       constexpr double kAnalogToMouseScalingFactor =
           (double)(Mouse::kMouseMovementUnitsMax - Mouse::kMouseMovementUnitsMin) /
@@ -444,17 +443,27 @@ namespace Xidi
       {
         case EAxisDirection::Both:
           mouseAxisValueToContribute +=
-              (int)(kMouseButtonContributionScalingFactor * (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMax - Mouse::kMouseMovementUnitsNeutral) : (Mouse::kMouseMovementUnitsMin - Mouse::kMouseMovementUnitsNeutral)));
+              (int)(kMouseButtonContributionScalingFactor *
+                    (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMax -
+                                              Mouse::kMouseMovementUnitsNeutral)
+                                           : (Mouse::kMouseMovementUnitsMin -
+                                              Mouse::kMouseMovementUnitsNeutral)));
           break;
 
         case EAxisDirection::Positive:
           mouseAxisValueToContribute +=
-              (int)(kMouseButtonContributionScalingFactor * (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMax - Mouse::kMouseMovementUnitsNeutral) : 0));
+              (int)(kMouseButtonContributionScalingFactor *
+                    (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMax -
+                                              Mouse::kMouseMovementUnitsNeutral)
+                                           : 0));
           break;
 
         case EAxisDirection::Negative:
           mouseAxisValueToContribute +=
-              (int)(kMouseButtonContributionScalingFactor * (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMin - Mouse::kMouseMovementUnitsNeutral) : 0));
+              (int)(kMouseButtonContributionScalingFactor *
+                    (double)(buttonPressed ? (Mouse::kMouseMovementUnitsMin -
+                                              Mouse::kMouseMovementUnitsNeutral)
+                                           : 0));
           break;
       }
 
@@ -466,10 +475,9 @@ namespace Xidi
     {
       static const bool kEnableMouseAxisProperites =
           Globals::GetConfigurationData()
-              .GetFirstBooleanValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties)
-              .value_or(true);
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties]
+                  .ValueOr(true);
 
       constexpr double kBidirectionalStepSize =
           (double)(Mouse::kMouseMovementUnitsMax - Mouse::kMouseMovementUnitsMin) /

@@ -1,10 +1,9 @@
-#define _CRT_SECURE_NO_WARNINGS
 /***************************************************************************************************
  * Xidi
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file VirtualDirectInputDevice.cpp
  *   Implementation of an IDirectInputDevice interface wrapper around virtual controllers.
@@ -14,53 +13,54 @@
 
 #include <atomic>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
 
+#include <Infra/Core/Configuration.h>
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+
 #include "ApiDirectInput.h"
 #include "ApiGUID.h"
-#include "Configuration.h"
 #include "ControllerIdentification.h"
 #include "ControllerTypes.h"
 #include "DataFormat.h"
 #include "ForceFeedbackDevice.h"
 #include "ForceFeedbackTypes.h"
 #include "Globals.h"
-#include "Message.h"
 #include "PhysicalController.h"
 #include "Strings.h"
 #include "VirtualController.h"
 #include "VirtualDirectInputEffect.h"
+#include "ImportApiWinMM.h"
 
-#define _CRT_SECURE_NO_DEPRECATE
-#include <stdio.h>
+// #define _CRT_SECURE_NO_DEPRECATE
+// #include <stdio.h>
 
 #include "cJSON.h"
 
 #define BUF_SIZE 1000000
 
-#include <tchar.h>
-#include <tlhelp32.h>
-#include <windows.h>
+// #include <tchar.h>
+// #include <tlhelp32.h>
+// #include <windows.h>
 
-#include <iostream>
+// #include <iostream>
+
 /// Logs a DirectInput interface method invocation and returns.
 #define LOG_INVOCATION_AND_RETURN(result, severity)                                                        \
   do                                                                                                       \
   {                                                                                                        \
     const HRESULT hresult = (result);                                                                      \
-    Message::OutputFormatted(                                                                              \
+    Infra::Message::OutputFormatted(                                                                       \
         severity,                                                                                          \
         L"Invoked %s on interface object %u associated with Xidi virtual controller %u, result = 0x%08x.", \
         __FUNCTIONW__ L"()",                                                                               \
-        kObjectId,                                                                                         \
-        (1 + controller->GetIdentifier()),                                                                 \
+        this->kObjectId,                                                                                   \
+        (1 + this->controller->GetIdentifier()),                                                           \
         hresult);                                                                                          \
     return hresult;                                                                                        \
   }                                                                                                        \
@@ -71,12 +71,12 @@
   do                                                                                                                                              \
   {                                                                                                                                               \
     const HRESULT hresult = (result);                                                                                                             \
-    Message::OutputFormatted(                                                                                                                     \
+    Infra::Message::OutputFormatted(                                                                                                              \
         severity,                                                                                                                                 \
         L"Invoked function %s on interface object %u associated with Xidi virtual controller %u, result = 0x%08x, property = %s" propvalfmt L".", \
         __FUNCTIONW__ L"()",                                                                                                                      \
-        kObjectId,                                                                                                                                \
-        (1 + controller->GetIdentifier()),                                                                                                        \
+        this->kObjectId,                                                                                                                          \
+        (1 + this->controller->GetIdentifier()),                                                                                                  \
         hresult,                                                                                                                                  \
         PropertyGuidString(rguidprop),                                                                                                            \
         ##__VA_ARGS__);                                                                                                                           \
@@ -121,13 +121,13 @@ namespace Xidi
   /// object using the specified GUID type and associated virtual DirectInput device.
   /// @tparam charMode Selects between ASCII ("A" suffix) and Unicode ("W") suffix versions of types
   /// and interfaces.
-  template <ECharMode charMode> using TForceFeedbackEffectCreatorFunc =
-      std::unique_ptr<VirtualDirectInputEffect<charMode>> (*)(
-          REFGUID, VirtualDirectInputDevice<charMode>&);
+  template <EDirectInputVersion diVersion> using TForceFeedbackEffectCreatorFunc =
+      std::unique_ptr<VirtualDirectInputEffect<diVersion>> (*)(
+          REFGUID, VirtualDirectInputDeviceBase<diVersion>&);
 
-  /// Generator for unique internal object identifiers for each #VirtualDirectInputDevice object
+  /// Generator for unique internal object identifiers for each #VirtualDirectInputDeviceBase object
   /// that is created.
-  static std::atomic<unsigned int> nextVirtualDirectInputDeviceObjectId = 0;
+  static std::atomic<unsigned int> nextVirtualDirectInputDeviceBaseObjectId = 0;
 
   /// Converts from axis type enumerator to axis type GUID.
   /// @param [in] axis Axis type enumerator to convert.
@@ -148,37 +148,135 @@ namespace Xidi
         return GUID_RyAxis;
       case Controller::EAxis::RotZ:
         return GUID_RzAxis;
-      case Controller::EAxis::Slider:
-        return GUID_Slider;
-      case Controller::EAxis::Dial:
-        return GUID_Slider;
       default:
         return GUID_Unknown;
     }
   }
 
-  static void CustomFunction() {
-      DWORD oldProtect;
-      uintptr_t originalAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0xA8900", NULL, 16);
-      BYTE originalBytes[5] = { 0xE8, 0x0B, 0x0A, 0x09, 0x00 };
+  /// Fills the specified buffer with a friendly string representation of the specified controller
+  /// element. This override is for ANSI-format buffers.
+  /// @param [in] element Controller element for which a string is desired.
+  /// @param [out] buf Buffer to be filled with the string.
+  /// @param [in] bufcount Buffer size in number of characters.
+  static void ElementToStringInternal(
+      Controller::SElementIdentifier element, LPSTR buf, int bufcount)
+  {
+    switch (element.type)
+    {
+      case Controller::EElementType::Axis:
+        switch (element.axis)
+        {
+          case Controller::EAxis::X:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_X, _countof(XIDI_AXIS_NAME_X));
+            break;
+          case Controller::EAxis::Y:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_Y, _countof(XIDI_AXIS_NAME_Y));
+            break;
+          case Controller::EAxis::Z:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_Z, _countof(XIDI_AXIS_NAME_Z));
+            break;
+          case Controller::EAxis::RotX:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RX, _countof(XIDI_AXIS_NAME_RX));
+            break;
+          case Controller::EAxis::RotY:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RY, _countof(XIDI_AXIS_NAME_RY));
+            break;
+          case Controller::EAxis::RotZ:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RZ, _countof(XIDI_AXIS_NAME_RZ));
+            break;
+          default:
+            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_UNKNOWN, _countof(XIDI_AXIS_NAME_UNKNOWN));
+            break;
+        }
+        break;
 
-      VirtualProtect((LPVOID)originalAddress, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-      memcpy((void*)originalAddress, originalBytes, 5);
-      VirtualProtect((LPVOID)originalAddress, 5, oldProtect, &oldProtect);
+      case Controller::EElementType::Button:
+        sprintf_s(buf, bufcount, XIDI_BUTTON_NAME_FORMAT, (1 + (unsigned int)element.button));
+        break;
 
-      uintptr_t funcAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0xA88F1", NULL, 16);
-      
-      VirtualProtect((LPVOID)funcAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
-      *(BYTE*)funcAddress = 0x74;
-      VirtualProtect((LPVOID)funcAddress, 1, oldProtect, &oldProtect);
-      
-      originalAddress = (uintptr_t)GetModuleHandleA(NULL) + strtoul("0x139310", NULL, 16);
-      __asm {
-          jmp originalAddress
+      case Controller::EElementType::Pov:
+        strncpy_s(buf, bufcount, XIDI_POV_NAME, _countof(XIDI_POV_NAME));
+        break;
 
-          // Return to the next instruction after the original call
-          //ret
-      }
+      case Controller::EElementType::WholeController:
+        strncpy_s(buf, bufcount, XIDI_WHOLE_CONTROLLER_NAME, _countof(XIDI_WHOLE_CONTROLLER_NAME));
+        break;
+    }
+  }
+
+  /// Fills the specified buffer with a friendly string representation of the specified controller
+  /// element. This override is for Unicode-format buffers.
+  /// @param [in] element Controller element for which a string is desired.
+  /// @param [out] buf Buffer to be filled with the string.
+  /// @param [in] bufcount Buffer size in number of characters.
+  static void ElementToStringInternal(
+      Controller::SElementIdentifier element, LPWSTR buf, int bufcount)
+  {
+    switch (element.type)
+    {
+      case Controller::EElementType::Axis:
+        switch (element.axis)
+        {
+          case Controller::EAxis::X:
+            wcsncpy_s(
+                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_X), _countof(_CRT_WIDE(XIDI_AXIS_NAME_X)));
+            break;
+          case Controller::EAxis::Y:
+            wcsncpy_s(
+                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_Y), _countof(_CRT_WIDE(XIDI_AXIS_NAME_Y)));
+            break;
+          case Controller::EAxis::Z:
+            wcsncpy_s(
+                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_Z), _countof(_CRT_WIDE(XIDI_AXIS_NAME_Z)));
+            break;
+          case Controller::EAxis::RotX:
+            wcsncpy_s(
+                buf,
+                bufcount,
+                _CRT_WIDE(XIDI_AXIS_NAME_RX),
+                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RX)));
+            break;
+          case Controller::EAxis::RotY:
+            wcsncpy_s(
+                buf,
+                bufcount,
+                _CRT_WIDE(XIDI_AXIS_NAME_RY),
+                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RY)));
+            break;
+          case Controller::EAxis::RotZ:
+            wcsncpy_s(
+                buf,
+                bufcount,
+                _CRT_WIDE(XIDI_AXIS_NAME_RZ),
+                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RZ)));
+            break;
+          default:
+            wcsncpy_s(
+                buf,
+                bufcount,
+                _CRT_WIDE(XIDI_AXIS_NAME_UNKNOWN),
+                _countof(_CRT_WIDE(XIDI_AXIS_NAME_UNKNOWN)));
+            break;
+        }
+        break;
+
+      case Controller::EElementType::Button:
+        swprintf_s(
+            buf, bufcount, _CRT_WIDE(XIDI_BUTTON_NAME_FORMAT), (1 + (unsigned int)element.button));
+        break;
+
+      case Controller::EElementType::Pov:
+        wcsncpy_s(buf, bufcount, _CRT_WIDE(XIDI_POV_NAME), _countof(_CRT_WIDE(XIDI_POV_NAME)));
+        break;
+
+      case Controller::EElementType::WholeController:
+        wcsncpy_s(
+            buf,
+            bufcount,
+            _CRT_WIDE(XIDI_WHOLE_CONTROLLER_NAME),
+            _countof(_CRT_WIDE(XIDI_WHOLE_CONTROLLER_NAME)));
+        break;
+    }
   }
 
   /// Returns a human-readable string that represents the specified force feedback effect GUID.
@@ -229,7 +327,6 @@ namespace Xidi
   {
     switch ((size_t)&rguidProp)
     {
-#if DIRECTINPUT_VERSION >= 0x0800
       case ((size_t)&DIPROP_KEYNAME):
         return L"DIPROP_KEYNAME";
       case ((size_t)&DIPROP_CPOINTS):
@@ -244,7 +341,6 @@ namespace Xidi
         return L"DIPROP_USERNAME";
       case ((size_t)&DIPROP_TYPENAME):
         return L"DIPROP_TYPENAME";
-#endif
       case ((size_t)&DIPROP_BUFFERSIZE):
         return L"DIPROP_BUFFERSIZE";
       case ((size_t)&DIPROP_AXISMODE):
@@ -295,16 +391,16 @@ namespace Xidi
   {
     if (nullptr == pdiph)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Rejected null property header for %s.",
           PropertyGuidString(rguidProp));
       return false;
     }
     else if ((sizeof(DIPROPHEADER) != pdiph->dwHeaderSize))
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Rejected invalid property header for %s: Incorrect size for DIPROPHEADER (expected %u, got %u).",
           PropertyGuidString(rguidProp),
           (unsigned int)sizeof(DIPROPHEADER),
@@ -313,8 +409,8 @@ namespace Xidi
     }
     else if ((DIPH_DEVICE == pdiph->dwHow) && (0 != pdiph->dwObj))
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Rejected invalid property header for %s: Incorrect object identification value used with DIPH_DEVICE (expected %u, got %u).",
           PropertyGuidString(rguidProp),
           (unsigned int)0,
@@ -332,8 +428,8 @@ namespace Xidi
         // These properties use DIPROPDWORD.
         if (sizeof(DIPROPDWORD) != pdiph->dwSize)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect size for DIPROPDWORD (expected %u, got %u).",
               PropertyGuidString(rguidProp),
               (unsigned int)sizeof(DIPROPDWORD),
@@ -348,14 +444,12 @@ namespace Xidi
       case ((size_t)&DIPROP_FFGAIN):
       case ((size_t)&DIPROP_FFLOAD):
       case ((size_t)&DIPROP_JOYSTICKID):
-#if DIRECTINPUT_VERSION >= 0x0800
       case ((size_t)&DIPROP_VIDPID):
-#endif
         // These properties use DIPROPDWORD and are exclusively device-wide properties.
         if (DIPH_DEVICE != pdiph->dwHow)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect object identification method for this property (expected %s, got %s).",
               PropertyGuidString(rguidProp),
               IdentificationMethodString(DIPH_DEVICE),
@@ -364,8 +458,8 @@ namespace Xidi
         }
         else if (sizeof(DIPROPDWORD) != pdiph->dwSize)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect size for DIPROPDWORD (expected %u, got %u).",
               PropertyGuidString(rguidProp),
               (unsigned int)sizeof(DIPROPDWORD),
@@ -380,8 +474,8 @@ namespace Xidi
         // These properties use DIPROPRANGE.
         if (sizeof(DIPROPRANGE) != pdiph->dwSize)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect size for DIPROPRANGE (expected %u, got %u).",
               PropertyGuidString(rguidProp),
               (unsigned int)sizeof(DIPROPRANGE),
@@ -393,14 +487,12 @@ namespace Xidi
       case ((size_t)&DIPROP_GETPORTDISPLAYNAME):
       case ((size_t)&DIPROP_INSTANCENAME):
       case ((size_t)&DIPROP_PRODUCTNAME):
-#if DIRECTINPUT_VERSION >= 0x0800
       case ((size_t)&DIPROP_USERNAME):
-#endif
         // These properties use DIPROPSTRING and are exclusively device-wide properties.
         if (DIPH_DEVICE != pdiph->dwHow)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect object identification method for this property (expected %s, got %s).",
               PropertyGuidString(rguidProp),
               IdentificationMethodString(DIPH_DEVICE),
@@ -409,8 +501,8 @@ namespace Xidi
         }
         else if (sizeof(DIPROPSTRING) != pdiph->dwSize)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect size for DIPROPSTRING (expected %u, got %u).",
               PropertyGuidString(rguidProp),
               (unsigned int)sizeof(DIPROPSTRING),
@@ -423,8 +515,8 @@ namespace Xidi
         // This property uses DIPROPGUIDANDPATH and is exclusively a device-wide property.
         if (DIPH_DEVICE != pdiph->dwHow)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect object identification method for this property (expected %s, got %s).",
               PropertyGuidString(rguidProp),
               IdentificationMethodString(DIPH_DEVICE),
@@ -433,8 +525,8 @@ namespace Xidi
         }
         else if (sizeof(DIPROPGUIDANDPATH) != pdiph->dwSize)
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Warning,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Warning,
               L"Rejected invalid property header for %s: Incorrect size for DIPROPGUIDANDPATH (expected %u, got %u).",
               PropertyGuidString(rguidProp),
               (unsigned int)sizeof(DIPROPGUIDANDPATH),
@@ -445,15 +537,15 @@ namespace Xidi
 
       default:
         // Any property not listed here is not supported by Xidi and therefore not validated by it.
-        Message::OutputFormatted(
-            Message::ESeverity::Warning,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Warning,
             L"Skipped property header validation because the property %s is not supported.",
             PropertyGuidString(rguidProp));
         return true;
     }
 
-    Message::OutputFormatted(
-        Message::ESeverity::Info,
+    Infra::Message::OutputFormatted(
+        Infra::Message::ESeverity::Info,
         L"Accepted valid property header for %s.",
         PropertyGuidString(rguidProp));
     return true;
@@ -466,38 +558,40 @@ namespace Xidi
   /// GetProperty.
   static void DumpPropertyRequest(REFGUID rguidProp, LPCDIPROPHEADER pdiph, bool requestTypeIsSet)
   {
-    constexpr Message::ESeverity kDumpSeverity = Message::ESeverity::Debug;
+    constexpr Infra::Message::ESeverity kDumpSeverity = Infra::Message::ESeverity::Debug;
 
-    if (Message::WillOutputMessageOfSeverity(kDumpSeverity))
+    if (Infra::Message::WillOutputMessageOfSeverity(kDumpSeverity))
     {
-      Message::Output(kDumpSeverity, L"Begin dump of property request.");
+      Infra::Message::Output(kDumpSeverity, L"Begin dump of property request.");
 
-      Message::Output(kDumpSeverity, L"  Metadata:");
-      Message::OutputFormatted(
+      Infra::Message::Output(kDumpSeverity, L"  Metadata:");
+      Infra::Message::OutputFormatted(
           kDumpSeverity,
           L"    operation = %sProperty",
           ((true == requestTypeIsSet) ? L"Set" : L"Get"));
-      Message::OutputFormatted(kDumpSeverity, L"    rguidProp = %s", PropertyGuidString(rguidProp));
+      Infra::Message::OutputFormatted(
+          kDumpSeverity, L"    rguidProp = %s", PropertyGuidString(rguidProp));
 
-      Message::Output(kDumpSeverity, L"  Header:");
+      Infra::Message::Output(kDumpSeverity, L"  Header:");
       if (nullptr == pdiph)
       {
-        Message::Output(kDumpSeverity, L"    (missing)");
+        Infra::Message::Output(kDumpSeverity, L"    (missing)");
       }
       else
       {
-        Message::OutputFormatted(kDumpSeverity, L"    dwSize = %u", pdiph->dwSize);
-        Message::OutputFormatted(kDumpSeverity, L"    dwHeaderSize = %u", pdiph->dwHeaderSize);
-        Message::OutputFormatted(
+        Infra::Message::OutputFormatted(kDumpSeverity, L"    dwSize = %u", pdiph->dwSize);
+        Infra::Message::OutputFormatted(
+            kDumpSeverity, L"    dwHeaderSize = %u", pdiph->dwHeaderSize);
+        Infra::Message::OutputFormatted(
             kDumpSeverity, L"    dwObj = %u (0x%08x)", pdiph->dwObj, pdiph->dwObj);
-        Message::OutputFormatted(
+        Infra::Message::OutputFormatted(
             kDumpSeverity,
             L"    dwHow = %u (%s)",
             pdiph->dwHow,
             IdentificationMethodString(pdiph->dwHow));
       }
 
-      Message::Output(kDumpSeverity, L"End dump of property request.");
+      Infra::Message::Output(kDumpSeverity, L"End dump of property request.");
     }
   }
 
@@ -509,65 +603,65 @@ namespace Xidi
   /// @param [in] rguidEffect Reference to the GUID that identifies the force feedback effect.
   /// @return Pointer to the creation function for the specified GUID if it exists, `nullptr`
   /// otherwise.
-  template <ECharMode charMode> static TForceFeedbackEffectCreatorFunc<charMode>
+  template <EDirectInputVersion diVersion> static TForceFeedbackEffectCreatorFunc<diVersion>
       ForceFeedbackEffectObjectCreator(REFGUID rguidEffect)
   {
     // This registry acts as the single knowledge center on which GUIDs can be constructed into
     // force feedback effect objects and how to do it. Presence or absence of a GUID in this
     // registry determines whether GUIDs are presented during enumeration or are recognized by calls
     // to device interface methods that use force feedback effect GUIDs.
-    static const std::unordered_map<GUID, TForceFeedbackEffectCreatorFunc<charMode>>
+    static const std::unordered_map<GUID, TForceFeedbackEffectCreatorFunc<diVersion>>
         kForceFeedbackEffectObjectCreators = {
             {GUID_ConstantForce,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<ConstantForceDirectInputEffect<charMode>>(
+               return std::make_unique<ConstantForceDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::ConstantForceEffect(), rguidEffect);
              }},
             {GUID_RampForce,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<RampForceDirectInputEffect<charMode>>(
+               return std::make_unique<RampForceDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::RampForceEffect(), rguidEffect);
              }},
             {GUID_Square,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<PeriodicDirectInputEffect<charMode>>(
+               return std::make_unique<PeriodicDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::SquareWaveEffect(), rguidEffect);
              }},
             {GUID_Sine,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<PeriodicDirectInputEffect<charMode>>(
+               return std::make_unique<PeriodicDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::SineWaveEffect(), rguidEffect);
              }},
             {GUID_Triangle,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<PeriodicDirectInputEffect<charMode>>(
+               return std::make_unique<PeriodicDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::TriangleWaveEffect(), rguidEffect);
              }},
             {GUID_SawtoothUp,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<PeriodicDirectInputEffect<charMode>>(
+               return std::make_unique<PeriodicDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::SawtoothUpEffect(), rguidEffect);
              }},
             {GUID_SawtoothDown,
-             [](REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
-                 -> std::unique_ptr<VirtualDirectInputEffect<charMode>>
+             [](REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
+                 -> std::unique_ptr<VirtualDirectInputEffect<diVersion>>
              {
-               return std::make_unique<PeriodicDirectInputEffect<charMode>>(
+               return std::make_unique<PeriodicDirectInputEffect<diVersion>>(
                    associatedDevice, Controller::ForceFeedback::SawtoothDownEffect(), rguidEffect);
              }},
-    };
+        };
 
     auto forceFeedbackEffectObjectCreatorIt = kForceFeedbackEffectObjectCreators.find(rguidEffect);
     if (kForceFeedbackEffectObjectCreators.cend() == forceFeedbackEffectObjectCreatorIt)
@@ -583,12 +677,12 @@ namespace Xidi
   /// @param [in] rguidEffect Reference to the GUID that identifies the force feedback effect.
   /// @return Smart pointer to the newly-constructed object, or `nullptr` if the GUID is not
   /// supported.
-  template <ECharMode charMode> static std::unique_ptr<VirtualDirectInputEffect<charMode>>
-      ForceFeedbackEffectCreateObject(
-          REFGUID rguidEffect, VirtualDirectInputDevice<charMode>& associatedDevice)
+  template <EDirectInputVersion diVersion>
+  static std::unique_ptr<VirtualDirectInputEffect<diVersion>> ForceFeedbackEffectCreateObject(
+      REFGUID rguidEffect, VirtualDirectInputDeviceBase<diVersion>& associatedDevice)
   {
-    TForceFeedbackEffectCreatorFunc<charMode> forceFeedbackObjectCreator =
-        ForceFeedbackEffectObjectCreator<charMode>(rguidEffect);
+    TForceFeedbackEffectCreatorFunc<diVersion> forceFeedbackObjectCreator =
+        ForceFeedbackEffectObjectCreator<diVersion>(rguidEffect);
     if (nullptr == forceFeedbackObjectCreator) return nullptr;
 
     return forceFeedbackObjectCreator(rguidEffect, associatedDevice);
@@ -774,8 +868,8 @@ namespace Xidi
   /// and interfaces.
   /// @param effectInfo [in, out] Structure to be filled with force feedback effect information,
   /// pre-filled with GUID and type.
-  template <ECharMode charMode> static void FillForceFeedbackEffectInfo(
-      typename DirectInputDeviceType<charMode>::EffectInfoType* effectInfo)
+  template <EDirectInputVersion diVersion> static void FillForceFeedbackEffectInfo(
+      typename DirectInputTypes<diVersion>::EffectInfoType* effectInfo)
   {
     // All effects support envelope parameters, both attack and fade.
     constexpr DWORD kEffectTypeExtraFlags = (DIEFT_FFATTACK | DIEFT_FFFADE);
@@ -801,14 +895,13 @@ namespace Xidi
   /// and interfaces.
   /// @param hidCollectionNumber HID collection number for which information should be filled.
   /// @param objectInfo [out] Structure to be filled with instance information.
-  template <ECharMode charMode> static void FillHidCollectionInstanceInfo(
+  template <EDirectInputVersion diVersion> static void FillHidCollectionInstanceInfo(
       uint16_t hidCollectionNumber,
-      typename DirectInputDeviceType<charMode>::DeviceObjectInstanceType* objectInfo)
+      typename DirectInputTypes<diVersion>::DeviceObjectInstanceType* objectInfo)
   {
     // DirectInput versions 5 and higher include extra members in this structure, and this is
     // indicated on input using the size member of the structure.
-    if (objectInfo->dwSize >
-        sizeof(DirectInputDeviceType<charMode>::DeviceObjectInstanceCompatType))
+    if (objectInfo->dwSize > sizeof(DirectInputTypes<diVersion>::DeviceObjectInstanceCompatType))
     {
       const SHidUsageData virtualControllerHidUsageData =
           HidUsageDataForControllerElement({.type = Controller::EElementType::WholeController});
@@ -845,16 +938,15 @@ namespace Xidi
   /// @param [in] controllerElement Virtual controller element about which to fill information.
   /// @param [in] offset Offset to place into the object instance information structure.
   /// @param [out] objectInfo Structure to be filled with instance information.
-  template <ECharMode charMode> static void FillObjectInstanceInfo(
+  template <EDirectInputVersion diVersion> static void FillObjectInstanceInfo(
       Controller::SCapabilities controllerCapabilities,
       Controller::SElementIdentifier controllerElement,
       TOffset offset,
-      typename DirectInputDeviceType<charMode>::DeviceObjectInstanceType* objectInfo)
+      typename DirectInputTypes<diVersion>::DeviceObjectInstanceType* objectInfo)
   {
     // DirectInput versions 5 and higher include extra members in this structure, and this is
     // indicated on input using the size member of the structure.
-    if (objectInfo->dwSize >
-        sizeof(DirectInputDeviceType<charMode>::DeviceObjectInstanceCompatType))
+    if (objectInfo->dwSize > sizeof(DirectInputTypes<diVersion>::DeviceObjectInstanceCompatType))
     {
       const SHidUsageData elementHidUsageData = HidUsageDataForControllerElement(controllerElement);
 
@@ -871,7 +963,7 @@ namespace Xidi
 
     objectInfo->dwOfs = offset;
     objectInfo->dwType = GetObjectId(controllerCapabilities, controllerElement);
-    VirtualDirectInputDevice<charMode>::ElementToString(
+    VirtualDirectInputDeviceBase<diVersion>::ElementToString(
         controllerElement, objectInfo->tszName, _countof(objectInfo->tszName));
 
     switch (controllerElement.type)
@@ -886,7 +978,7 @@ namespace Xidi
           objectInfo->dwFlags |= DIDOI_FFACTUATOR;
 
           if (objectInfo->dwSize >
-              sizeof(DirectInputDeviceType<charMode>::DeviceObjectInstanceCompatType))
+              sizeof(DirectInputTypes<diVersion>::DeviceObjectInstanceCompatType))
           {
             // Maximum force is supposedly measured in Newtons. This value is taken from a Logitech
             // RumblePad 2.
@@ -913,9 +1005,9 @@ namespace Xidi
     }
   }
 
-  template <ECharMode charMode> VirtualDirectInputDevice<charMode>::VirtualDirectInputDevice(
-      std::unique_ptr<Controller::VirtualController>&& controller)
-      : kObjectId(nextVirtualDirectInputDeviceObjectId++),
+  template <EDirectInputVersion diVersion> VirtualDirectInputDeviceBase<diVersion>::
+      VirtualDirectInputDeviceBase(std::unique_ptr<Controller::VirtualController>&& controller)
+      : kObjectId(nextVirtualDirectInputDeviceBaseObjectId++),
         controller(std::move(controller)),
         cooperativeLevel(ECooperativeLevel::Shared),
         dataFormat(),
@@ -924,142 +1016,37 @@ namespace Xidi
         unusedProperties()
   {}
 
-  template <ECharMode charMode> VirtualDirectInputDevice<charMode>::~VirtualDirectInputDevice(void)
+  template <EDirectInputVersion diVersion> VirtualDirectInputDeviceBase<
+      diVersion>::~VirtualDirectInputDeviceBase(void)
   {
     controller->ForceFeedbackUnregister();
   }
 
-  template <> void VirtualDirectInputDevice<ECharMode::A>::ElementToString(
-      Controller::SElementIdentifier element, LPSTR buf, int bufcount)
+  template <EDirectInputVersion diVersion> void
+      VirtualDirectInputDeviceBase<diVersion>::ElementToString(
+          Controller::SElementIdentifier element,
+          DirectInputTypes<diVersion>::StringType buf,
+          int bufcount)
   {
-    switch (element.type)
-    {
-      case Controller::EElementType::Axis:
-        switch (element.axis)
-        {
-          case Controller::EAxis::X:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_X, _countof(XIDI_AXIS_NAME_X));
-            break;
-          case Controller::EAxis::Y:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_Y, _countof(XIDI_AXIS_NAME_Y));
-            break;
-          case Controller::EAxis::Z:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_Z, _countof(XIDI_AXIS_NAME_Z));
-            break;
-          case Controller::EAxis::RotX:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RX, _countof(XIDI_AXIS_NAME_RX));
-            break;
-          case Controller::EAxis::RotY:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RY, _countof(XIDI_AXIS_NAME_RY));
-            break;
-          case Controller::EAxis::RotZ:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_RZ, _countof(XIDI_AXIS_NAME_RZ));
-            break;
-          default:
-            strncpy_s(buf, bufcount, XIDI_AXIS_NAME_UNKNOWN, _countof(XIDI_AXIS_NAME_UNKNOWN));
-            break;
-        }
-        break;
-
-      case Controller::EElementType::Button:
-        sprintf_s(buf, bufcount, XIDI_BUTTON_NAME_FORMAT, (1 + (unsigned int)element.button));
-        break;
-
-      case Controller::EElementType::Pov:
-        strncpy_s(buf, bufcount, XIDI_POV_NAME, _countof(XIDI_POV_NAME));
-        break;
-
-      case Controller::EElementType::WholeController:
-        strncpy_s(buf, bufcount, XIDI_WHOLE_CONTROLLER_NAME, _countof(XIDI_WHOLE_CONTROLLER_NAME));
-        break;
-    }
+    return ElementToStringInternal(element, buf, bufcount);
   }
 
-  template <> void VirtualDirectInputDevice<ECharMode::W>::ElementToString(
-      Controller::SElementIdentifier element, LPWSTR buf, int bufcount)
+  template <EDirectInputVersion diVersion> bool
+      VirtualDirectInputDeviceBase<diVersion>::ForceFeedbackEffectCanCreateObject(
+          REFGUID rguidEffect)
   {
-    switch (element.type)
-    {
-      case Controller::EElementType::Axis:
-        switch (element.axis)
-        {
-          case Controller::EAxis::X:
-            wcsncpy_s(
-                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_X), _countof(_CRT_WIDE(XIDI_AXIS_NAME_X)));
-            break;
-          case Controller::EAxis::Y:
-            wcsncpy_s(
-                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_Y), _countof(_CRT_WIDE(XIDI_AXIS_NAME_Y)));
-            break;
-          case Controller::EAxis::Z:
-            wcsncpy_s(
-                buf, bufcount, _CRT_WIDE(XIDI_AXIS_NAME_Z), _countof(_CRT_WIDE(XIDI_AXIS_NAME_Z)));
-            break;
-          case Controller::EAxis::RotX:
-            wcsncpy_s(
-                buf,
-                bufcount,
-                _CRT_WIDE(XIDI_AXIS_NAME_RX),
-                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RX)));
-            break;
-          case Controller::EAxis::RotY:
-            wcsncpy_s(
-                buf,
-                bufcount,
-                _CRT_WIDE(XIDI_AXIS_NAME_RY),
-                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RY)));
-            break;
-          case Controller::EAxis::RotZ:
-            wcsncpy_s(
-                buf,
-                bufcount,
-                _CRT_WIDE(XIDI_AXIS_NAME_RZ),
-                _countof(_CRT_WIDE(XIDI_AXIS_NAME_RZ)));
-            break;
-          default:
-            wcsncpy_s(
-                buf,
-                bufcount,
-                _CRT_WIDE(XIDI_AXIS_NAME_UNKNOWN),
-                _countof(_CRT_WIDE(XIDI_AXIS_NAME_UNKNOWN)));
-            break;
-        }
-        break;
-
-      case Controller::EElementType::Button:
-        swprintf_s(
-            buf, bufcount, _CRT_WIDE(XIDI_BUTTON_NAME_FORMAT), (1 + (unsigned int)element.button));
-        break;
-
-      case Controller::EElementType::Pov:
-        wcsncpy_s(buf, bufcount, _CRT_WIDE(XIDI_POV_NAME), _countof(_CRT_WIDE(XIDI_POV_NAME)));
-        break;
-
-      case Controller::EElementType::WholeController:
-        wcsncpy_s(
-            buf,
-            bufcount,
-            _CRT_WIDE(XIDI_WHOLE_CONTROLLER_NAME),
-            _countof(_CRT_WIDE(XIDI_WHOLE_CONTROLLER_NAME)));
-        break;
-    }
+    return (nullptr != ForceFeedbackEffectObjectCreator<diVersion>(rguidEffect));
   }
 
-  template <ECharMode charMode> bool
-      VirtualDirectInputDevice<charMode>::ForceFeedbackEffectCanCreateObject(REFGUID rguidEffect)
-  {
-    return (nullptr != ForceFeedbackEffectObjectCreator<charMode>(rguidEffect));
-  }
-
-  template <ECharMode charMode> Controller::ForceFeedback::Device*
-      VirtualDirectInputDevice<charMode>::AutoAcquireAndGetForceFeedbackDevice(void)
+  template <EDirectInputVersion diVersion> Controller::ForceFeedback::Device*
+      VirtualDirectInputDeviceBase<diVersion>::AutoAcquireAndGetForceFeedbackDevice(void)
   {
     Controller::ForceFeedback::Device* forceFeedbackDevice = controller->ForceFeedbackGetDevice();
 
     if (nullptr == forceFeedbackDevice)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Info,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Info,
           L"Attempting to acquire Xidi virtual controller %u automatically because the application did not do so explicitly.",
           (1 + controller->GetIdentifier()));
 
@@ -1070,8 +1057,8 @@ namespace Xidi
     return forceFeedbackDevice;
   }
 
-  template <ECharMode charMode> std::optional<Controller::SElementIdentifier>
-      VirtualDirectInputDevice<charMode>::IdentifyElement(DWORD dwObj, DWORD dwHow) const
+  template <EDirectInputVersion diVersion> std::optional<Controller::SElementIdentifier>
+      VirtualDirectInputDeviceBase<diVersion>::IdentifyElement(DWORD dwObj, DWORD dwHow) const
   {
     switch (dwHow)
     {
@@ -1149,8 +1136,8 @@ namespace Xidi
     return std::nullopt;
   }
 
-  template <ECharMode charMode> std::optional<DWORD>
-      VirtualDirectInputDevice<charMode>::IdentifyObjectById(
+  template <EDirectInputVersion diVersion> std::optional<DWORD>
+      VirtualDirectInputDeviceBase<diVersion>::IdentifyObjectById(
           Controller::SElementIdentifier element) const
   {
     const DWORD objectId = GetObjectId(controller->GetCapabilities(), element);
@@ -1159,8 +1146,8 @@ namespace Xidi
     return std::nullopt;
   }
 
-  template <ECharMode charMode> std::optional<TOffset>
-      VirtualDirectInputDevice<charMode>::IdentifyObjectByOffset(
+  template <EDirectInputVersion diVersion> std::optional<TOffset>
+      VirtualDirectInputDeviceBase<diVersion>::IdentifyObjectByOffset(
           Controller::SElementIdentifier element) const
   {
     if (true == IsApplicationDataFormatSet()) return dataFormat->GetOffsetForElement(element);
@@ -1168,35 +1155,12 @@ namespace Xidi
     return std::nullopt;
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::QueryInterface(
-      REFIID riid, LPVOID* ppvObj)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::QueryInterface(REFIID riid, LPVOID* ppvObj)
   {
     if (nullptr == ppvObj) return E_POINTER;
 
-    bool validInterfaceRequested = false;
-
-    if (ECharMode::W == charMode)
-    {
-#if DIRECTINPUT_VERSION >= 0x0800
-      if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputDevice8W))
-#else
-      if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputDevice7W) ||
-          IsEqualIID(riid, IID_IDirectInputDevice2W) || IsEqualIID(riid, IID_IDirectInputDeviceW))
-#endif
-        validInterfaceRequested = true;
-    }
-    else
-    {
-#if DIRECTINPUT_VERSION >= 0x0800
-      if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputDevice8A))
-#else
-      if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputDevice7A) ||
-          IsEqualIID(riid, IID_IDirectInputDevice2A) || IsEqualIID(riid, IID_IDirectInputDeviceA))
-#endif
-        validInterfaceRequested = true;
-    }
-
-    if (true == validInterfaceRequested)
+    if (true == DirectInputTypes<diVersion>::IsCompatibleDirectInputDeviceIID(riid))
     {
       AddRef();
       *ppvObj = this;
@@ -1206,12 +1170,14 @@ namespace Xidi
     return E_NOINTERFACE;
   }
 
-  template <ECharMode charMode> ULONG VirtualDirectInputDevice<charMode>::AddRef(void)
+  template <EDirectInputVersion diVersion> ULONG VirtualDirectInputDeviceBase<diVersion>::AddRef(
+      void)
   {
     return ++refCount;
   }
 
-  template <ECharMode charMode> ULONG VirtualDirectInputDevice<charMode>::Release(void)
+  template <EDirectInputVersion diVersion> ULONG VirtualDirectInputDeviceBase<diVersion>::Release(
+      void)
   {
     const unsigned long numRemainingRefs = --refCount;
 
@@ -1220,14 +1186,15 @@ namespace Xidi
     return (ULONG)numRemainingRefs;
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::Acquire(void)
+  template <EDirectInputVersion diVersion> HRESULT VirtualDirectInputDeviceBase<diVersion>::Acquire(
+      void)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     // DirectInput documentation requires that the application data format already be set before a
     // device can be acquired.
     if (false == IsApplicationDataFormatSet())
-      LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, Message::ESeverity::Warning);
+      LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, Infra::Message::ESeverity::Warning);
 
     switch (cooperativeLevel)
     {
@@ -1238,7 +1205,7 @@ namespace Xidi
         // at all. However, in the interest of compabitility with DirectInput, Xidi does require
         // exclusive acquisition in order for force feedback to be available.
 
-        Message::OutputFormatted(
+        Infra::Message::OutputFormatted(
             kMethodSeverity,
             L"Acquiring Xidi virtual controller %u in exclusive mode.",
             (1 + controller->GetIdentifier()));
@@ -1251,7 +1218,7 @@ namespace Xidi
 
         // Getting to this point means force feedback registration failed. This should not normally
         // occur.
-        LOG_INVOCATION_AND_RETURN(DIERR_OTHERAPPHASPRIO, Message::ESeverity::Error);
+        LOG_INVOCATION_AND_RETURN(DIERR_OTHERAPPHASPRIO, Infra::Message::ESeverity::Error);
 
       default:
         // No other cooperative level requires any action on Xidi's part for the acquisition to
@@ -1260,32 +1227,33 @@ namespace Xidi
     }
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::CreateEffect(
-      REFGUID rguid, LPCDIEFFECT lpeff, LPDIRECTINPUTEFFECT* ppdeff, LPUNKNOWN punkOuter)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::CreateEffect(
+          REFGUID rguid, LPCDIEFFECT lpeff, LPDIRECTINPUTEFFECT* ppdeff, LPUNKNOWN punkOuter)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to create an effect on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
     }
 
     if (nullptr != punkOuter)
-      Message::Output(
-          Message::ESeverity::Warning,
+      Infra::Message::Output(
+          Infra::Message::ESeverity::Warning,
           L"Application requested COM aggregation, which is not implemented, while creating a force feedback effect.");
 
-    Message::OutputFormatted(
-        Message::ESeverity::Debug,
+    Infra::Message::OutputFormatted(
+        Infra::Message::ESeverity::Debug,
         L"Creating effect with GUID %s.",
         ForceFeedbackEffectGuidString(rguid));
 
-    std::unique_ptr<VirtualDirectInputEffect<charMode>> newEffect =
-        ForceFeedbackEffectCreateObject<charMode>(rguid, *this);
+    std::unique_ptr<VirtualDirectInputEffect<diVersion>> newEffect =
+        ForceFeedbackEffectCreateObject<diVersion>(rguid, *this);
     if (nullptr == newEffect) LOG_INVOCATION_AND_RETURN(DIERR_DEVICENOTREG, kMethodSeverity);
 
     if (nullptr != lpeff)
@@ -1313,7 +1281,7 @@ namespace Xidi
       }
     }
 
-    Message::OutputFormatted(
+    Infra::Message::OutputFormatted(
         kMethodSeverity,
         L"Created a force feedback effect and assigned it an identifier of %llu.",
         (unsigned long long)newEffect->UnderlyingEffect().Identifier());
@@ -1322,19 +1290,19 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT
-      VirtualDirectInputDevice<charMode>::EnumCreatedEffectObjects(
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::EnumCreatedEffectObjects(
           LPDIENUMCREATEDEFFECTOBJECTSCALLBACK lpCallback, LPVOID pvRef, DWORD fl)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if ((nullptr == lpCallback) || (0 != fl))
       LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to enumerate created effect objects on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
@@ -1363,19 +1331,20 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::EnumEffects(
-      DirectInputDeviceType<charMode>::EnumEffectsCallbackType lpCallback,
-      LPVOID pvRef,
-      DWORD dwEffType)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::EnumEffects(
+          DirectInputTypes<diVersion>::EnumEffectsCallbackType lpCallback,
+          LPVOID pvRef,
+          DWORD dwEffType)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == lpCallback) LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to enumerate effects on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
@@ -1393,8 +1362,8 @@ namespace Xidi
     if ((true == willEnumerateConstantForce) || (true == willEnumerateCustomForce) ||
         (true == willEnumeratePeriodic) || (true == willEnumerateRampForce))
     {
-      std::unique_ptr<DirectInputDeviceType<charMode>::EffectInfoType> effectDescriptor =
-          std::make_unique<DirectInputDeviceType<charMode>::EffectInfoType>();
+      std::unique_ptr<DirectInputTypes<diVersion>::EffectInfoType> effectDescriptor =
+          std::make_unique<DirectInputTypes<diVersion>::EffectInfoType>();
 
       if (true == willEnumerateConstantForce)
       {
@@ -1407,7 +1376,7 @@ namespace Xidi
                 .dwSize = sizeof(*effectDescriptor),
                 .guid = *effectGuid,
                 .dwEffType = ForceFeedbackEffectType(*effectGuid).value()};
-            FillForceFeedbackEffectInfo<charMode>(effectDescriptor.get());
+            FillForceFeedbackEffectInfo<diVersion>(effectDescriptor.get());
             switch (lpCallback(effectDescriptor.get(), pvRef))
             {
               case DIENUM_CONTINUE:
@@ -1432,7 +1401,7 @@ namespace Xidi
                 .dwSize = sizeof(*effectDescriptor),
                 .guid = *effectGuid,
                 .dwEffType = ForceFeedbackEffectType(*effectGuid).value()};
-            FillForceFeedbackEffectInfo<charMode>(effectDescriptor.get());
+            FillForceFeedbackEffectInfo<diVersion>(effectDescriptor.get());
             switch (lpCallback(effectDescriptor.get(), pvRef))
             {
               case DIENUM_CONTINUE:
@@ -1458,7 +1427,7 @@ namespace Xidi
                 .dwSize = sizeof(*effectDescriptor),
                 .guid = *effectGuid,
                 .dwEffType = ForceFeedbackEffectType(*effectGuid).value()};
-            FillForceFeedbackEffectInfo<charMode>(effectDescriptor.get());
+            FillForceFeedbackEffectInfo<diVersion>(effectDescriptor.get());
             switch (lpCallback(effectDescriptor.get(), pvRef))
             {
               case DIENUM_CONTINUE:
@@ -1483,7 +1452,7 @@ namespace Xidi
                 .dwSize = sizeof(*effectDescriptor),
                 .guid = *effectGuid,
                 .dwEffType = ForceFeedbackEffectType(*effectGuid).value()};
-            FillForceFeedbackEffectInfo<charMode>(effectDescriptor.get());
+            FillForceFeedbackEffectInfo<diVersion>(effectDescriptor.get());
             switch (lpCallback(effectDescriptor.get(), pvRef))
             {
               case DIENUM_CONTINUE:
@@ -1501,28 +1470,29 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::EnumEffectsInFile(
-      DirectInputDeviceType<charMode>::ConstStringType lptszFileName,
-      LPDIENUMEFFECTSINFILECALLBACK pec,
-      LPVOID pvRef,
-      DWORD dwFlags)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::EnumEffectsInFile(
+          DirectInputTypes<diVersion>::ConstStringType lptszFileName,
+          LPDIENUMEFFECTSINFILECALLBACK pec,
+          LPVOID pvRef,
+          DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::EnumObjects(
-      DirectInputDeviceType<charMode>::EnumObjectsCallbackType lpCallback,
-      LPVOID pvRef,
-      DWORD dwFlags)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::EnumObjects(
+          DirectInputTypes<diVersion>::EnumObjectsCallbackType lpCallback,
+          LPVOID pvRef,
+          DWORD dwFlags)
   {
     static const bool kAlwaysContinueEnumerating =
         Globals::GetConfigurationData()
-            .GetFirstBooleanValue(
-                Strings::kStrConfigurationSectionWorkarounds,
-                Strings::kStrConfigurationSettingsWorkaroundsIgnoreEnumObjectsCallbackReturnCode)
-            .value_or(false);
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+            [Strings::kStrConfigurationSectionWorkarounds]
+            [Strings::kStrConfigurationSettingsWorkaroundsIgnoreEnumObjectsCallbackReturnCode]
+                .ValueOr(false);
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == lpCallback) LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
 
@@ -1547,8 +1517,8 @@ namespace Xidi
     if ((true == willEnumerateAxes) || (true == willEnumerateButtons) ||
         (true == willEnumeratePov) || (true == willEnumerateHidCollections))
     {
-      std::unique_ptr<DirectInputDeviceType<charMode>::DeviceObjectInstanceType> objectDescriptor =
-          std::make_unique<DirectInputDeviceType<charMode>::DeviceObjectInstanceType>();
+      std::unique_ptr<DirectInputTypes<diVersion>::DeviceObjectInstanceType> objectDescriptor =
+          std::make_unique<DirectInputTypes<diVersion>::DeviceObjectInstanceType>();
       const Controller::SCapabilities controllerCapabilities = controller->GetCapabilities();
 
       if (true == willEnumerateAxes)
@@ -1569,7 +1539,7 @@ namespace Xidi
                    : NativeOffsetForElement(axisIdentifier));
 
           *objectDescriptor = {.dwSize = sizeof(*objectDescriptor)};
-          FillObjectInstanceInfo<charMode>(
+          FillObjectInstanceInfo<diVersion>(
               controllerCapabilities, axisIdentifier, axisOffset, objectDescriptor.get());
 
           const bool continueEnumerating =
@@ -1593,7 +1563,7 @@ namespace Xidi
                    : NativeOffsetForElement(buttonIdentifier));
 
           *objectDescriptor = {.dwSize = sizeof(*objectDescriptor)};
-          FillObjectInstanceInfo<charMode>(
+          FillObjectInstanceInfo<diVersion>(
               controllerCapabilities, buttonIdentifier, buttonOffset, objectDescriptor.get());
 
           const bool continueEnumerating =
@@ -1616,7 +1586,7 @@ namespace Xidi
                    : NativeOffsetForElement(povIdentifier));
 
           *objectDescriptor = {.dwSize = sizeof(*objectDescriptor)};
-          FillObjectInstanceInfo<charMode>(
+          FillObjectInstanceInfo<diVersion>(
               controllerCapabilities, povIdentifier, povOffset, objectDescriptor.get());
 
           const bool continueEnumerating =
@@ -1635,7 +1605,7 @@ namespace Xidi
         for (const auto hidCollectionNumber : kHidCollectionsToEnumerate)
         {
           *objectDescriptor = {.dwSize = sizeof(*objectDescriptor)};
-          FillHidCollectionInstanceInfo<charMode>(hidCollectionNumber, objectDescriptor.get());
+          FillHidCollectionInstanceInfo<diVersion>(hidCollectionNumber, objectDescriptor.get());
 
           const bool continueEnumerating =
               (DIENUM_STOP != lpCallback(objectDescriptor.get(), pvRef));
@@ -1648,17 +1618,17 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::Escape(
+  template <EDirectInputVersion diVersion> HRESULT VirtualDirectInputDeviceBase<diVersion>::Escape(
       LPDIEFFESCAPE pesc)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetCapabilities(
-      LPDIDEVCAPS lpDIDevCaps)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetCapabilities(LPDIDEVCAPS lpDIDevCaps)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == lpDIDevCaps) LOG_INVOCATION_AND_RETURN(E_POINTER, kMethodSeverity);
 
@@ -1676,10 +1646,10 @@ namespace Xidi
         if (true == kForceFeedbackIsSupported)
         {
           lpDIDevCaps->dwFFSamplePeriod =
-              VirtualDirectInputEffect<charMode>::ConvertTimeToDirectInput(
+              VirtualDirectInputEffect<diVersion>::ConvertTimeToDirectInput(
                   Controller::kPhysicalForceFeedbackPeriodMilliseconds);
           lpDIDevCaps->dwFFMinTimeResolution =
-              VirtualDirectInputEffect<charMode>::ConvertTimeToDirectInput(1);
+              VirtualDirectInputEffect<diVersion>::ConvertTimeToDirectInput(1);
           lpDIDevCaps->dwFFDriverVersion = 1;
         }
         else
@@ -1693,7 +1663,7 @@ namespace Xidi
       case (sizeof(DIDEVCAPS_DX3)):
         // Top-level controller information is common to all virtual controllers.
         lpDIDevCaps->dwFlags = DIDC_ATTACHED | DIDC_EMULATED;
-        lpDIDevCaps->dwDevType = DINPUT_DEVTYPE_XINPUT_GAMEPAD;
+        lpDIDevCaps->dwDevType = DirectInputTypes<diVersion>::XinputGamepadDeviceType();
 
         // Additional flags must be specified for force feedback axes.
         if (true == kForceFeedbackIsSupported)
@@ -1713,11 +1683,18 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceData(
-      DWORD cbObjectData, LPDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD dwFlags)
+  HANDLE hMapFile;
+  char* jsonBuffer;
+  bool runProgramOnce = false;
+  char* newJsonBuffer;
+  bool detectedEvent = false;
+
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetDeviceData(
+          DWORD cbObjectData, LPDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
-    constexpr Message::ESeverity kMethodSeverityForError = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::SuperDebug;
+    constexpr Infra::Message::ESeverity kMethodSeverityForError = Infra::Message::ESeverity::Info;
 
     // DIDEVICEOBJECTDATA and DIDEVICEOBJECTDATA_DX3 are defined identically for all DirectInput
     // versions below 8. There is therefore no need to differentiate, as the distinction between
@@ -1740,79 +1717,77 @@ namespace Xidi
     if (false == controller->IsEventBufferEnabled())
       LOG_INVOCATION_AND_RETURN(DIERR_NOTBUFFERED, kMethodSeverityForError);
 
-    auto lock = controller->Lock();
-    const DWORD numEventsAffected = std::min(*pdwInOut, (DWORD)controller->GetEventBufferCount());
-    const bool eventBufferOverflowed = controller->IsEventBufferOverflowed();
-    const bool shouldPopEvents = (0 == (dwFlags & DIGDD_PEEK));
+    DWORD numEventsAffected = 0;
+    detectedEvent = false;
 
     if (nullptr != rgdod)
     {
-      for (DWORD i = 0; i < numEventsAffected; ++i)
-      {
-        const Controller::StateChangeEventBuffer::SEvent& event =
-            controller->GetEventBufferEvent(i);
-        ZeroMemory(&rgdod[i], sizeof(rgdod[i]));
-        rgdod[i].dwOfs = dataFormat->GetOffsetForElement(event.data.element)
-                             .value(); // A value should always be present.
-        rgdod[i].dwTimeStamp = event.timestamp;
-        rgdod[i].dwSequence = event.sequence;
-
-        switch (event.data.element.type)
+        cJSON* jsonArray = cJSON_Parse(newJsonBuffer);
+    
+        if (cJSON_GetErrorPtr() == NULL)
         {
-          case Controller::EElementType::Axis:
-            rgdod[i].dwData = (DWORD)DataFormat::DirectInputAxisValue(event.data.value.axis);
-            break;
-
-          case Controller::EElementType::Button:
-            rgdod[i].dwData = (DWORD)DataFormat::DirectInputButtonValue(event.data.value.button);
-            break;
-
-          case Controller::EElementType::Pov:
-            rgdod[i].dwData = (DWORD)DataFormat::DirectInputPovValue(event.data.value.povDirection);
-            break;
-
-          default:
-            LOG_INVOCATION_AND_RETURN(
-                DIERR_GENERIC, kMethodSeverityForError); // This should never happen.
-            break;
+          if (jsonArray != NULL)
+          {
+            cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
+    
+            cJSON* changedJsonObject = cJSON_GetObjectItem(jsonObject, "changed");
+            if(changedJsonObject != NULL) {
+                const uint32_t timestamp = ImportApiWinMM::timeGetTime();
+                int array_size = cJSON_GetArraySize(changedJsonObject);
+                for (int k = 0; k < array_size; k++) {
+                    cJSON *item = cJSON_GetArrayItem(changedJsonObject, k);
+                    for (int i = 0; i < 128; i++) {
+                        cJSON *buttonFromJSON = cJSON_GetObjectItemCaseSensitive(item, ("b" + std::to_string(i + 1)).c_str());
+                        if(buttonFromJSON != NULL) {
+                            numEventsAffected += 1;
+                            ZeroMemory(&rgdod[0], sizeof(rgdod[0]));
+                            rgdod[0].dwData = (DWORD)DataFormat::DirectInputButtonValue(buttonFromJSON->valueint == 1 ? true : false);
+                            rgdod[0].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Button, .button = (Xidi::Controller::EButton)i})).value(); // A value should always be present.
+                            rgdod[0].dwTimeStamp = timestamp;
+                            rgdod[0].dwSequence = rgdod[0].dwSequence + 1;
+                            detectedEvent = true;
+                        }
+                    }
+                }
+            }
+          }
         }
-      }
+    
+        cJSON_Delete(jsonArray);
+        if (hMapFile == NULL)hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
+        UnmapViewOfFile(newJsonBuffer); 
+        newJsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
     }
-
-    if (true == shouldPopEvents) controller->PopEventBufferOldestEvents(numEventsAffected);
-
+    
     *pdwInOut = numEventsAffected;
     LOG_INVOCATION_AND_RETURN(
-        ((true == eventBufferOverflowed) ? DI_BUFFEROVERFLOW : DI_OK), kMethodSeverity);
+        ((detectedEvent) ? DI_BUFFEROVERFLOW : DI_OK), kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceInfo(
-      DirectInputDeviceType<charMode>::DeviceInstanceType* pdidi)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetDeviceInfo(
+          DirectInputTypes<diVersion>::DeviceInstanceType* pdidi)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == pdidi) LOG_INVOCATION_AND_RETURN(E_POINTER, kMethodSeverity);
 
     switch (pdidi->dwSize)
     {
-      case (sizeof(DirectInputDeviceType<charMode>::DeviceInstanceType)):
-      case (sizeof(DirectInputDeviceType<charMode>::DeviceInstanceCompatType)):
+      case (sizeof(DirectInputTypes<diVersion>::DeviceInstanceType)):
+      case (sizeof(DirectInputTypes<diVersion>::DeviceInstanceCompatType)):
         break;
 
       default:
         LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
     }
 
-    FillVirtualControllerInfo(*pdidi, controller->GetIdentifier());
+    FillVirtualControllerInfo<diVersion>(*pdidi, controller->GetIdentifier());
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  HANDLE hMapFile;
-  char* jsonBuffer;
-  bool runProgramOnce = false;
-
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetDeviceState(
-      DWORD cbData, LPVOID lpvData)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetDeviceState(DWORD cbData, LPVOID lpvData)
   {
     if (runProgramOnce == false)
     {
@@ -1837,10 +1812,10 @@ namespace Xidi
 
       runProgramOnce = true;
 
-      const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
+      const Infra::Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
       
-      if(configData.SectionExists(Xidi::Strings::kStrConfigurationSectionWorkarounds)) {
-        if (configData[Xidi::Strings::kStrConfigurationSectionWorkarounds].GetFirstBooleanValue(Xidi::Strings::kStrConfigurationSettingsWorkaroundsLinux).value_or(false)) {
+      if(false == configData[Xidi::Strings::kStrConfigurationSectionWorkarounds].Empty()) {
+        if (configData[Xidi::Strings::kStrConfigurationSectionWorkarounds][Xidi::Strings::kStrConfigurationSettingsWorkaroundsLinux].ValueOr(false)) {
           HANDLE createdFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1000000, TEXT("Local\\XidiControllers"));
           char* pBuf = (char*)MapViewOfFile(createdFileMap, FILE_MAP_WRITE, 0, 0, 1000000);
           snprintf(pBuf, strlen("_xidi_") + 1, "_xidi_");
@@ -1848,8 +1823,8 @@ namespace Xidi
       }
     }
 
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
-    constexpr Message::ESeverity kMethodSeverityForError = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::SuperDebug;
+    constexpr Infra::Message::ESeverity kMethodSeverityForError = Infra::Message::ESeverity::Info;
 
     if ((nullptr == lpvData) || (false == IsApplicationDataFormatSet()) ||
         (cbData < dataFormat->GetPacketSizeBytes()))
@@ -1857,196 +1832,198 @@ namespace Xidi
 
     bool writeDataPacketResult = false;
     {
-      auto lock = controller->Lock();
+        auto lock = controller->Lock();
 
-      Xidi::Controller::SState state = controller->GetState();
-
-      cJSON* jsonArray = cJSON_Parse(jsonBuffer);
-
-      if (cJSON_GetErrorPtr() == NULL)
-      {
-        if (jsonArray != NULL)
+        Xidi::Controller::SState state = controller->GetState();
+  
+        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
+  
+        if (cJSON_GetErrorPtr() == NULL)
         {
-          cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
-
-          for (int i = 0; i < 128; i++)
+          if (jsonArray != NULL)
           {
-            cJSON* buttonFromJSON =
-                cJSON_GetObjectItemCaseSensitive(jsonObject, ("b" + std::to_string(i + 1)).c_str());
-            if (buttonFromJSON != NULL)
-              state.button[(int)(Xidi::Controller::EButton)i] = buttonFromJSON->valueint;
-          }
-
-          cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::X] = axisFromJSON->valueint;
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Y");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::Y] = axisFromJSON->valueint;
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Z");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::Z] = axisFromJSON->valueint;
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::RotX] = axisFromJSON->valueint;
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::RotY] = axisFromJSON->valueint;
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
-
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Slider");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::Slider] = axisFromJSON->valueint;
-
-          axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Dial");
-          if (axisFromJSON != NULL)
-            state.axis[(int)Xidi::Controller::EAxis::Dial] = axisFromJSON->valueint;
-
-          cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
-          if (directionFromJSON != NULL)
-            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
-                directionFromJSON->valueint;
-          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Down");
-          if (directionFromJSON != NULL)
-            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
-                directionFromJSON->valueint;
-          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Left");
-          if (directionFromJSON != NULL)
-            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
-                directionFromJSON->valueint;
-          directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Right");
-          if (directionFromJSON != NULL)
-            state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
-                directionFromJSON->valueint;
-
-          if (controller->GetIdentifier() == 0)
-          {
-            cJSON* keyboardKeys = cJSON_GetObjectItem(jsonObject, "keyboard");
-
-            if (keyboardKeys != NULL)
+            cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
+  
+            for (int i = 0; i < 128; i++)
             {
-              cJSON* pressed = cJSON_GetObjectItem(keyboardKeys, "pressed");
-              for (int i = 0; i < cJSON_GetArraySize(pressed); ++i)
-              {
-                cJSON* currentKey = cJSON_GetArrayItem(pressed, i);
-                Xidi::Keyboard::SubmitKeyPressedState(currentKey->valueint);
-              }
-
-              cJSON* released = cJSON_GetObjectItem(keyboardKeys, "released");
-              for (int i = 0; i < cJSON_GetArraySize(released); ++i)
-              {
-                cJSON* currentKey = cJSON_GetArrayItem(released, i);
-                Xidi::Keyboard::SubmitKeyReleasedState(currentKey->valueint);
+              cJSON* buttonFromJSON =
+                  cJSON_GetObjectItemCaseSensitive(jsonObject, ("b" + std::to_string(i + 1)).c_str());
+              if (buttonFromJSON != NULL){
+                 state.button[(int)(Xidi::Controller::EButton)i] = buttonFromJSON->valueint;
               }
             }
-
-            cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
-
-            if (mouseData != NULL)
-            {
-              cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint
-                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Left);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint
-                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Right)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Right);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x1");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint
-                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X1)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X1);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x2");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint
-                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X2)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X2);
-
-              isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "middle");
-              if (isCurrentKeyPressed != NULL)
-                isCurrentKeyPressed->valueint
-                    ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Middle)
-                    : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                          Xidi::Mouse::EMouseButton::Middle);
-
-              cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
-              if (mouseMove->valueint != 0)
-              {
-                cJSON* mouseX = cJSON_GetObjectItemCaseSensitive(mouseData, "x");
-                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::X, mouseX->valueint, 0);
-                cJSON* mouseY = cJSON_GetObjectItemCaseSensitive(mouseData, "y");
-                Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
-
-                cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
-                Xidi::Mouse::SubmitMouseMovement(
-                    Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
-                cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
-                Xidi::Mouse::SubmitMouseMovement(
-                    Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
-              }
-            }
-
-            /* TODO
+  
+            cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::X] = axisFromJSON->valueint;
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Y");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::Y] = axisFromJSON->valueint;
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Z");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::Z] = axisFromJSON->valueint;
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::RotX] = axisFromJSON->valueint;
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::RotY] = axisFromJSON->valueint;
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
+  
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Slider");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::Slider] = axisFromJSON->valueint;
+  
+            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Dial");
+            if (axisFromJSON != NULL)
+              state.axis[(int)Xidi::Controller::EAxis::Dial] = axisFromJSON->valueint;
+  
+            cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
+            if (directionFromJSON != NULL)
+              state.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
+                  directionFromJSON->valueint;
+            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Down");
+            if (directionFromJSON != NULL)
+              state.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
+                  directionFromJSON->valueint;
+            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Left");
+            if (directionFromJSON != NULL)
+              state.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
+                  directionFromJSON->valueint;
+            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Right");
+            if (directionFromJSON != NULL)
+              state.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
+                  directionFromJSON->valueint;
+  
             if (controller->GetIdentifier() == 0)
             {
-              cJSON* functionAddressesArray = cJSON_GetObjectItem(jsonObject, "functions");
-
-              if (functionAddressesArray != NULL)
+              cJSON* keyboardKeys = cJSON_GetObjectItem(jsonObject, "keyboard");
+  
+              if (keyboardKeys != NULL)
               {
-                for (int i = 0; i < cJSON_GetArraySize(functionAddressesArray); ++i)
+                cJSON* pressed = cJSON_GetObjectItem(keyboardKeys, "pressed");
+                for (int i = 0; i < cJSON_GetArraySize(pressed); ++i)
                 {
-                  cJSON* currentFunction = cJSON_GetArrayItem(functionAddressesArray, i);
-                  cJSON* address = cJSON_GetObjectItemCaseSensitive(currentFunction, "address");
-                  cJSON* activated = cJSON_GetObjectItemCaseSensitive(currentFunction, "activated");
-
-                  if (cJSON_IsTrue(activated))
-                  {
-                    uintptr_t offset = strtoul(address->valuestring, NULL, 16);
-                    uintptr_t funcAddress = (uintptr_t)GetModuleHandleA(NULL) + offset;
-
-                    DWORD oldProtect;
-                    VirtualProtect((LPVOID)funcAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
-                    *(BYTE*)funcAddress = 0x75;
-                    VirtualProtect((LPVOID)funcAddress, 1, oldProtect, &oldProtect);
-                  }
+                  cJSON* currentKey = cJSON_GetArrayItem(pressed, i);
+                  Xidi::Keyboard::SubmitKeyPressedState(currentKey->valueint);
+                }
+  
+                cJSON* released = cJSON_GetObjectItem(keyboardKeys, "released");
+                for (int i = 0; i < cJSON_GetArraySize(released); ++i)
+                {
+                  cJSON* currentKey = cJSON_GetArrayItem(released, i);
+                  Xidi::Keyboard::SubmitKeyReleasedState(currentKey->valueint);
                 }
               }
-            } */
+  
+              cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
+  
+              if (mouseData != NULL)
+              {
+                cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
+                if (isCurrentKeyPressed != NULL)
+                  isCurrentKeyPressed->valueint
+                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
+                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Left);
+  
+                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
+                if (isCurrentKeyPressed != NULL)
+                  isCurrentKeyPressed->valueint
+                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Right)
+                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::Right);
+  
+                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x1");
+                if (isCurrentKeyPressed != NULL)
+                  isCurrentKeyPressed->valueint
+                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X1)
+                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X1);
+  
+                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x2");
+                if (isCurrentKeyPressed != NULL)
+                  isCurrentKeyPressed->valueint
+                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X2)
+                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X2);
+  
+                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "middle");
+                if (isCurrentKeyPressed != NULL)
+                  isCurrentKeyPressed->valueint
+                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Middle)
+                      : Xidi::Mouse::SubmitMouseButtonReleasedState(
+                            Xidi::Mouse::EMouseButton::Middle);
+  
+                cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
+                if (mouseMove->valueint != 0)
+                {
+                  cJSON* mouseX = cJSON_GetObjectItemCaseSensitive(mouseData, "x");
+                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::X, mouseX->valueint, 0);
+                  cJSON* mouseY = cJSON_GetObjectItemCaseSensitive(mouseData, "y");
+                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
+  
+                  cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
+                  Xidi::Mouse::SubmitMouseMovement(
+                      Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
+                  cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
+                  Xidi::Mouse::SubmitMouseMovement(
+                      Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
+                }
+              }
+  
+              /* TODO
+              if (controller->GetIdentifier() == 0)
+              {
+                cJSON* functionAddressesArray = cJSON_GetObjectItem(jsonObject, "functions");
+  
+                if (functionAddressesArray != NULL)
+                {
+                  for (int i = 0; i < cJSON_GetArraySize(functionAddressesArray); ++i)
+                  {
+                    cJSON* currentFunction = cJSON_GetArrayItem(functionAddressesArray, i);
+                    cJSON* address = cJSON_GetObjectItemCaseSensitive(currentFunction, "address");
+                    cJSON* activated = cJSON_GetObjectItemCaseSensitive(currentFunction, "activated");
+  
+                    if (cJSON_IsTrue(activated))
+                    {
+                      uintptr_t offset = strtoul(address->valuestring, NULL, 16);
+                      uintptr_t funcAddress = (uintptr_t)GetModuleHandleA(NULL) + offset;
+  
+                      DWORD oldProtect;
+                      VirtualProtect((LPVOID)funcAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
+                      *(BYTE*)funcAddress = 0x75;
+                      VirtualProtect((LPVOID)funcAddress, 1, oldProtect, &oldProtect);
+                    }
+                  }
+                }
+              } */
+            }
           }
         }
-      }
-
-      cJSON_Delete(jsonArray);
-
-      if (hMapFile == NULL)
-        hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
-
-      UnmapViewOfFile(jsonBuffer);
-      jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
-
-      writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
+  
+        cJSON_Delete(jsonArray);
+  
+        if (hMapFile == NULL)
+          hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
+  
+        UnmapViewOfFile(jsonBuffer);
+        jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
+  
+        writeDataPacketResult = dataFormat->WriteDataPacket(lpvData, cbData, state);
     }
     LOG_INVOCATION_AND_RETURN(
         ((true == writeDataPacketResult) ? DI_OK : DIERR_INVALIDPARAM), kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetEffectInfo(
-      DirectInputDeviceType<charMode>::EffectInfoType* pdei, REFGUID rguid)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetEffectInfo(
+          DirectInputTypes<diVersion>::EffectInfoType* pdei, REFGUID rguid)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to get force feedback effect information on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
@@ -2063,20 +2040,20 @@ namespace Xidi
 
     const DWORD effectType = maybeEffectType.value();
     *pdei = {.dwSize = sizeof(*pdei), .guid = rguid, .dwEffType = effectType};
-    FillForceFeedbackEffectInfo<charMode>(pdei);
+    FillForceFeedbackEffectInfo<diVersion>(pdei);
 
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetForceFeedbackState(
-      LPDWORD pdwOut)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetForceFeedbackState(LPDWORD pdwOut)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to get force feedback state on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
@@ -2123,17 +2100,18 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetObjectInfo(
-      DirectInputDeviceType<charMode>::DeviceObjectInstanceType* pdidoi, DWORD dwObj, DWORD dwHow)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetObjectInfo(
+          DirectInputTypes<diVersion>::DeviceObjectInstanceType* pdidoi, DWORD dwObj, DWORD dwHow)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == pdidoi) LOG_INVOCATION_AND_RETURN(E_POINTER, kMethodSeverity);
 
     switch (pdidoi->dwSize)
     {
-      case (sizeof(DirectInputDeviceType<charMode>::DeviceObjectInstanceType)):
-      case (sizeof(DirectInputDeviceType<charMode>::DeviceObjectInstanceCompatType)):
+      case (sizeof(DirectInputTypes<diVersion>::DeviceObjectInstanceType)):
+      case (sizeof(DirectInputTypes<diVersion>::DeviceObjectInstanceCompatType)):
         break;
 
       default:
@@ -2149,7 +2127,7 @@ namespace Xidi
     if (Controller::EElementType::WholeController == element.type)
       LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
 
-    FillObjectInstanceInfo<charMode>(
+    FillObjectInstanceInfo<diVersion>(
         controller->GetCapabilities(),
         element,
         ((true == IsApplicationDataFormatSet())
@@ -2159,10 +2137,10 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetProperty(
-      REFGUID rguidProp, LPDIPROPHEADER pdiph)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::GetProperty(REFGUID rguidProp, LPDIPROPHEADER pdiph)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     DumpPropertyRequest(rguidProp, pdiph, false);
 
@@ -2235,8 +2213,8 @@ namespace Xidi
         wcsncpy_s(
             ((LPDIPROPSTRING)pdiph)->wsz,
             _countof(((LPDIPROPSTRING)pdiph)->wsz),
-            Strings::kStrProductName.data(),
-            Strings::kStrProductName.length());
+            Infra::ProcessInfo::GetProductName().data(),
+            Infra::ProcessInfo::GetProductName().length());
         LOG_PROPERTY_INVOCATION_DIPROPSTRING_AND_RETURN(S_FALSE, kMethodSeverity, rguidProp, pdiph);
 
       case ((size_t)&DIPROP_GRANULARITY):
@@ -2309,75 +2287,96 @@ namespace Xidi
         ((LPDIPROPDWORD)pdiph)->dwData = controller->GetAxisSaturation(element.axis);
         LOG_PROPERTY_INVOCATION_DIPROPDWORD_AND_RETURN(DI_OK, kMethodSeverity, rguidProp, pdiph);
 
-#if DIRECTINPUT_VERSION >= 0x0800
       case ((size_t)&DIPROP_USERNAME):
-        // Xidi does not support action maps, so the user name property cannot be set on a virtual
-        // controller. Per DirectInput documentation the return code is `S_FALSE` when a user name
-        // is not assigned to a DirectInput device.
-        ((LPDIPROPSTRING)pdiph)->wsz[0] = L'\0';
-        LOG_PROPERTY_INVOCATION_DIPROPSTRING_AND_RETURN(S_FALSE, kMethodSeverity, rguidProp, pdiph);
+        // This property is available starting in DirectInput version 8.
+        if constexpr (
+            (diVersion == EDirectInputVersion::k8A) || (diVersion == EDirectInputVersion::k8W))
+        {
+          // Xidi does not support action maps, so the user name property cannot be set on a virtual
+          // controller. Per DirectInput documentation the return code is `S_FALSE` when a user name
+          // is not assigned to a DirectInput device.
+          ((LPDIPROPSTRING)pdiph)->wsz[0] = L'\0';
+          LOG_PROPERTY_INVOCATION_DIPROPSTRING_AND_RETURN(
+              S_FALSE, kMethodSeverity, rguidProp, pdiph);
+        }
+        else
+        {
+          LOG_PROPERTY_INVOCATION_DIPROPDWORD_AND_RETURN(
+              DIERR_UNSUPPORTED, kMethodSeverity, rguidProp, pdiph);
+        }
 
       case ((size_t)&DIPROP_VIDPID):
-        ((LPDIPROPDWORD)pdiph)->dwData =
-            ((DWORD)VirtualControllerProductId(controller->GetIdentifier()) << 16) |
-            ((DWORD)kVirtualControllerVendorId);
-        LOG_PROPERTY_INVOCATION_DIPROPDWORD_AND_RETURN(DI_OK, kMethodSeverity, rguidProp, pdiph);
-#endif
+        // This property is available starting in DirectInput version 8.
+        if constexpr (
+            (diVersion == EDirectInputVersion::k8A) || (diVersion == EDirectInputVersion::k8W))
+        {
+          ((LPDIPROPDWORD)pdiph)->dwData =
+              ((DWORD)VirtualControllerProductId(controller->GetIdentifier()) << 16) |
+              ((DWORD)kVirtualControllerVendorId);
+          LOG_PROPERTY_INVOCATION_DIPROPDWORD_AND_RETURN(DI_OK, kMethodSeverity, rguidProp, pdiph);
+        }
+        else
+        {
+          LOG_PROPERTY_INVOCATION_DIPROPDWORD_AND_RETURN(
+              DIERR_UNSUPPORTED, kMethodSeverity, rguidProp, pdiph);
+        }
 
       default:
         LOG_PROPERTY_INVOCATION_NO_VALUE_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity, rguidProp);
     }
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::Initialize(
-      HINSTANCE hinst, DWORD dwVersion, REFGUID rguid)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::Initialize(
+          HINSTANCE hinst, DWORD dwVersion, REFGUID rguid)
   {
     // Not required for Xidi virtual controllers as they are implemented now.
     // However, this method is needed for creating IDirectInputDevice objects via COM.
 
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::Poll(void)
+  template <EDirectInputVersion diVersion> HRESULT VirtualDirectInputDeviceBase<diVersion>::Poll(
+      void)
   {
     // Not required for Xidi virtual controllers as they are implemented now.
     // However, some applications explicitly check for return codes like `DI_OK`, which is why a
     // workaround is allowed to change the return code.
-    static const DWORD kPollReturnCode =
-        (DWORD)Globals::GetConfigurationData()
-            .GetFirstIntegerValue(
-                Strings::kStrConfigurationSectionWorkarounds,
-                Strings::kStrConfigurationSettingWorkaroundsPollReturnCode)
-            .value_or(DI_NOEFFECT);
+    static const DWORD kPollReturnCode = static_cast<DWORD>(
+        Globals::GetConfigurationData()[Strings::kStrConfigurationSectionWorkarounds]
+                                       [Strings::kStrConfigurationSettingWorkaroundsPollReturnCode]
+                                           .ValueOr(DI_NOEFFECT));
 
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::SuperDebug;
-    LOG_INVOCATION_AND_RETURN(kPollReturnCode, kMethodSeverity);
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::SuperDebug;
+    //LOG_INVOCATION_AND_RETURN(kPollReturnCode, kMethodSeverity);
+    return kPollReturnCode;
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::RunControlPanel(
-      HWND hwndOwner, DWORD dwFlags)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::RunControlPanel(HWND hwndOwner, DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SendDeviceData(
-      DWORD cbObjectData, LPCDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD fl)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SendDeviceData(
+          DWORD cbObjectData, LPCDIDEVICEOBJECTDATA rgdod, LPDWORD pdwInOut, DWORD fl)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT
-      VirtualDirectInputDevice<charMode>::SendForceFeedbackCommand(DWORD dwFlags)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SendForceFeedbackCommand(DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (false == controller->GetCapabilities().ForceFeedbackIsSupported())
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Application is attempting to send a force feedback command on Xidi virtual controller %u which does not support force feedback.",
           (1 + controller->GetIdentifier()));
       LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
@@ -2390,51 +2389,56 @@ namespace Xidi
     switch (dwFlags)
     {
       case DISFFC_CONTINUE:
-        Message::Output(
-            Message::ESeverity::Debug, L"Sending force feedback command DISFFC_CONTINUE.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug, L"Sending force feedback command DISFFC_CONTINUE.");
         forceFeedbackDevice->SetPauseState(false);
         break;
 
       case DISFFC_PAUSE:
-        Message::Output(Message::ESeverity::Debug, L"Sending force feedback command DISFFC_PAUSE.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug, L"Sending force feedback command DISFFC_PAUSE.");
         forceFeedbackDevice->SetPauseState(true);
         break;
 
       case DISFFC_RESET:
-        Message::Output(Message::ESeverity::Debug, L"Sending force feedback command DISFFC_RESET.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug, L"Sending force feedback command DISFFC_RESET.");
         forceFeedbackDevice->Clear();
         break;
 
       case DISFFC_SETACTUATORSOFF:
-        Message::Output(
-            Message::ESeverity::Debug, L"Sending force feedback command DISFFC_SETACTUATORSOFF.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug,
+            L"Sending force feedback command DISFFC_SETACTUATORSOFF.");
         forceFeedbackDevice->SetMutedState(true);
         break;
 
       case DISFFC_SETACTUATORSON:
-        Message::Output(
-            Message::ESeverity::Debug, L"Sending force feedback command DISFFC_SETACTUATORSON.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug,
+            L"Sending force feedback command DISFFC_SETACTUATORSON.");
         forceFeedbackDevice->SetMutedState(false);
         break;
 
       case DISFFC_STOPALL:
-        Message::Output(
-            Message::ESeverity::Debug, L"Sending force feedback command DISFFC_STOPALL.");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug, L"Sending force feedback command DISFFC_STOPALL.");
         forceFeedbackDevice->StopAllEffects();
         break;
 
       default:
-        Message::Output(Message::ESeverity::Debug, L"Sending force feedback command (unknown).");
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug, L"Sending force feedback command (unknown).");
         LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
     }
 
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SetCooperativeLevel(
-      HWND hwnd, DWORD dwFlags)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SetCooperativeLevel(HWND hwnd, DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     // The only piece of information Xidi needs from the cooperative level is whether shared or
     // exclusive mode is desired.
@@ -2446,10 +2450,10 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SetDataFormat(
-      LPCDIDATAFORMAT lpdf)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SetDataFormat(LPCDIDATAFORMAT lpdf)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (nullptr == lpdf) LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
 
@@ -2489,10 +2493,10 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SetEventNotification(
-      HANDLE hEvent)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SetEventNotification(HANDLE hEvent)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     if (INVALID_HANDLE_VALUE == hEvent)
       LOG_INVOCATION_AND_RETURN(DIERR_INVALIDPARAM, kMethodSeverity);
@@ -2504,10 +2508,10 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SetProperty(
-      REFGUID rguidProp, LPCDIPROPHEADER pdiph)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::SetProperty(REFGUID rguidProp, LPCDIPROPHEADER pdiph)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     DumpPropertyRequest(rguidProp, pdiph, true);
 
@@ -2683,9 +2687,10 @@ namespace Xidi
     }
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::Unacquire(void)
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::Unacquire(void)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
 
     // The only possible state that would need to be undone when unacquiring a device is
     // relinquishing control over the physical device's force feedback buffer.
@@ -2694,44 +2699,58 @@ namespace Xidi
     LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::WriteEffectToFile(
-      DirectInputDeviceType<charMode>::ConstStringType lptszFileName,
-      DWORD dwEntries,
-      LPDIFILEEFFECT rgDiFileEft,
+  template <EDirectInputVersion diVersion> HRESULT
+      VirtualDirectInputDeviceBase<diVersion>::WriteEffectToFile(
+          DirectInputTypes<diVersion>::ConstStringType lptszFileName,
+          DWORD dwEntries,
+          LPDIFILEEFFECT rgDiFileEft,
+          DWORD dwFlags)
+  {
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
+    LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
+  }
+
+  template <EDirectInputVersion diVersion>
+    requires (DirectInputVersionIs8<diVersion>)
+  HRESULT VirtualDirectInputDeviceVersion8Only<diVersion>::BuildActionMap(
+      DirectInputTypes<diVersion>::ActionFormatType* lpdiaf,
+      DirectInputTypes<diVersion>::ConstStringType lpszUserName,
       DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-#if DIRECTINPUT_VERSION >= 0x0800
+  template <EDirectInputVersion diVersion>
+    requires (DirectInputVersionIs8<diVersion>)
+  HRESULT VirtualDirectInputDeviceVersion8Only<diVersion>::GetImageInfo(
+      DirectInputTypes<diVersion>::DeviceImageInfoHeaderType* lpdiDevImageInfoHeader)
+  {
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
+    LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
+  }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::BuildActionMap(
-      DirectInputDeviceType<charMode>::ActionFormatType* lpdiaf,
-      DirectInputDeviceType<charMode>::ConstStringType lpszUserName,
+  template <EDirectInputVersion diVersion>
+    requires (DirectInputVersionIs8<diVersion>)
+  HRESULT VirtualDirectInputDeviceVersion8Only<diVersion>::SetActionMap(
+      DirectInputTypes<diVersion>::ActionFormatType* lpdiActionFormat,
+      DirectInputTypes<diVersion>::ConstStringType lptszUserName,
       DWORD dwFlags)
   {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
+    constexpr Infra::Message::ESeverity kMethodSeverity = Infra::Message::ESeverity::Info;
     LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
   }
 
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::GetImageInfo(
-      DirectInputDeviceType<charMode>::DeviceImageInfoHeaderType* lpdiDevImageInfoHeader)
-  {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
-    LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
-  }
-
-  template <ECharMode charMode> HRESULT VirtualDirectInputDevice<charMode>::SetActionMap(
-      DirectInputDeviceType<charMode>::ActionFormatType* lpdiActionFormat,
-      DirectInputDeviceType<charMode>::ConstStringType lptszUserName,
-      DWORD dwFlags)
-  {
-    constexpr Message::ESeverity kMethodSeverity = Message::ESeverity::Info;
-    LOG_INVOCATION_AND_RETURN(DIERR_UNSUPPORTED, kMethodSeverity);
-  }
-#endif
-
-  template class VirtualDirectInputDevice<ECharMode::A>;
-  template class VirtualDirectInputDevice<ECharMode::W>;
+  template class VirtualDirectInputDeviceBase<EDirectInputVersion::k8A>;
+  template class VirtualDirectInputDeviceBase<EDirectInputVersion::k8W>;
+  template class VirtualDirectInputDeviceBase<EDirectInputVersion::kLegacyA>;
+  template class VirtualDirectInputDeviceBase<EDirectInputVersion::kLegacyW>;
+  template class VirtualDirectInputDeviceVersion8Only<EDirectInputVersion::k8A>;
+  template class VirtualDirectInputDeviceVersion8Only<EDirectInputVersion::k8W>;
+  template class VirtualDirectInputDeviceVersionLegacyOnly<EDirectInputVersion::kLegacyA>;
+  template class VirtualDirectInputDeviceVersionLegacyOnly<EDirectInputVersion::kLegacyW>;
+  template class VirtualDirectInputDevice<EDirectInputVersion::k8A>;
+  template class VirtualDirectInputDevice<EDirectInputVersion::k8W>;
+  template class VirtualDirectInputDevice<EDirectInputVersion::kLegacyA>;
+  template class VirtualDirectInputDevice<EDirectInputVersion::kLegacyW>;
 } // namespace Xidi

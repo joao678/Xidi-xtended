@@ -3,19 +3,19 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file InvertMapperTest.cpp
  *   Unit tests for controller element mappers that invert input received and forward the result
  *   to another element mapper.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ElementMapper.h"

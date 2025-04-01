@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file Mapper.cpp
  *   Implementation of functionality used to implement mappings of an entire XInput controller
@@ -18,15 +18,16 @@
 #include <set>
 #include <string_view>
 
+#include <Infra/Core/Configuration.h>
+#include <Infra/Core/Message.h>
+
 #include "ApiBitSet.h"
 #include "ApiWindows.h"
-#include "Configuration.h"
 #include "ControllerMath.h"
 #include "ControllerTypes.h"
 #include "ElementMapper.h"
 #include "ForceFeedbackTypes.h"
 #include "Globals.h"
-#include "Message.h"
 #include "Strings.h"
 
 namespace Xidi
@@ -50,23 +51,23 @@ namespace Xidi
       /// Dumps all mappers in this registry.
       void DumpRegisteredMappers(void)
       {
-        constexpr Message::ESeverity kDumpSeverity = Message::ESeverity::Info;
+        constexpr Infra::Message::ESeverity kDumpSeverity = Infra::Message::ESeverity::Info;
 
-        if (Message::WillOutputMessageOfSeverity(kDumpSeverity))
+        if (Infra::Message::WillOutputMessageOfSeverity(kDumpSeverity))
         {
-          Message::Output(kDumpSeverity, L"Begin dump of all known mappers.");
+          Infra::Message::Output(kDumpSeverity, L"Begin dump of all known mappers.");
 
           for (const auto& knownMapper : knownMappers)
           {
             const std::wstring_view knownMapperName = knownMapper.first;
             const SCapabilities knownMapperCapabilities = knownMapper.second->GetCapabilities();
 
-            Message::OutputFormatted(kDumpSeverity, L"  %s:", knownMapperName.data());
+            Infra::Message::OutputFormatted(kDumpSeverity, L"  %s:", knownMapperName.data());
 
-            Message::OutputFormatted(
+            Infra::Message::OutputFormatted(
                 kDumpSeverity, L"    numAxes = %u", (unsigned int)knownMapperCapabilities.numAxes);
             for (unsigned int i = 0; i < knownMapperCapabilities.numAxes; ++i)
-              Message::OutputFormatted(
+              Infra::Message::OutputFormatted(
                   kDumpSeverity,
                   L"      axisCapabilities[%u] = { type = %s, supportsForceFeedback = %s }",
                   i,
@@ -75,17 +76,17 @@ namespace Xidi
                        ? L"true"
                        : L"false"));
 
-            Message::OutputFormatted(
+            Infra::Message::OutputFormatted(
                 kDumpSeverity,
                 L"    numButtons = %u",
                 (unsigned int)knownMapperCapabilities.numButtons);
-            Message::OutputFormatted(
+            Infra::Message::OutputFormatted(
                 kDumpSeverity,
                 L"    hasPov = %s",
                 ((true == knownMapperCapabilities.hasPov) ? L"true" : L"false"));
           }
 
-          Message::Output(kDumpSeverity, L"End dump of all known mappers.");
+          Infra::Message::Output(kDumpSeverity, L"End dump of all known mappers.");
         }
       }
 
@@ -96,8 +97,8 @@ namespace Xidi
       {
         if (true == name.empty())
         {
-          Message::Output(
-              Message::ESeverity::Error,
+          Infra::Message::Output(
+              Infra::Message::ESeverity::Error,
               L"Internal error: Attempting to register a mapper without a name.");
           return;
         }
@@ -115,16 +116,16 @@ namespace Xidi
       {
         if (true == name.empty())
         {
-          Message::Output(
-              Message::ESeverity::Error,
+          Infra::Message::Output(
+              Infra::Message::ESeverity::Error,
               L"Internal error: Attempting to unregister a mapper without a name.");
           return;
         }
 
         if (false == knownMappers.contains(name))
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Error,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Error,
               L"Internal error: Attempting to unregister unknown mapper %s.",
               name.data());
           return;
@@ -132,8 +133,8 @@ namespace Xidi
 
         if (object != knownMappers.at(name))
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Error,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Error,
               L"Internal error: Object mismatch while attempting to unregister mapper %s.",
               name.data());
           return;
@@ -445,9 +446,9 @@ namespace Xidi
           configuredMapperFlag,
           []() -> void
           {
-            const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
+            const auto& configData = Globals::GetConfigurationData();
 
-            if (true == configData.SectionExists(Strings::kStrConfigurationSectionMapper))
+            if (true == configData.Contains(Strings::kStrConfigurationSectionMapper))
             {
               // Mapper section exists in the configuration file.
               // If the controller-independent type setting exists, it will be used as the fallback
@@ -456,17 +457,15 @@ namespace Xidi
               const auto& mapperConfigData = configData[Strings::kStrConfigurationSectionMapper];
 
               const Mapper* fallbackMapper = nullptr;
-              if (true == mapperConfigData.NameExists(Strings::kStrConfigurationSettingMapperType))
+              if (true == mapperConfigData.Contains(Strings::kStrConfigurationSettingMapperType))
               {
                 std::wstring_view fallbackMapperName =
-                    mapperConfigData[Strings::kStrConfigurationSettingMapperType]
-                        .FirstValue()
-                        .GetStringValue();
+                    mapperConfigData[Strings::kStrConfigurationSettingMapperType]->GetString();
                 fallbackMapper = GetByName(fallbackMapperName);
 
                 if (nullptr == fallbackMapper)
-                  Message::OutputFormatted(
-                      Message::ESeverity::Warning,
+                  Infra::Message::OutputFormatted(
+                      Infra::Message::ESeverity::Warning,
                       L"Could not locate mapper \"%s\" specified in the configuration file as the default.",
                       fallbackMapperName.data());
               }
@@ -477,8 +476,8 @@ namespace Xidi
 
                 if (nullptr == fallbackMapper)
                 {
-                  Message::Output(
-                      Message::ESeverity::Error,
+                  Infra::Message::Output(
+                      Infra::Message::ESeverity::Error,
                       L"Internal error: Unable to locate the default mapper.");
                   fallbackMapper = GetNull();
                 }
@@ -487,18 +486,16 @@ namespace Xidi
               for (TControllerIdentifier i = 0; i < _countof(configuredMapper); ++i)
               {
                 if (true ==
-                    mapperConfigData.NameExists(Strings::MapperTypeConfigurationNameString(i)))
+                    mapperConfigData.Contains(Strings::MapperTypeConfigurationNameString(i)))
                 {
                   std::wstring_view configuredMapperName =
-                      mapperConfigData[Strings::MapperTypeConfigurationNameString(i)]
-                          .FirstValue()
-                          .GetStringValue();
+                      mapperConfigData[Strings::MapperTypeConfigurationNameString(i)]->GetString();
                   configuredMapper[i] = GetByName(configuredMapperName.data());
 
                   if (nullptr == configuredMapper[i])
                   {
-                    Message::OutputFormatted(
-                        Message::ESeverity::Warning,
+                    Infra::Message::OutputFormatted(
+                        Infra::Message::ESeverity::Warning,
                         L"Could not locate mapper \"%s\" specified in the configuration file for controller %u.",
                         configuredMapperName.data(),
                         (unsigned int)(1 + i));
@@ -517,8 +514,8 @@ namespace Xidi
               const Mapper* defaultMapper = GetDefault();
               if (nullptr == defaultMapper)
               {
-                Message::Output(
-                    Message::ESeverity::Error,
+                Infra::Message::Output(
+                    Infra::Message::ESeverity::Error,
                     L"Internal error: Unable to locate the default mapper. Virtual controllers will not function.");
                 defaultMapper = GetNull();
               }
@@ -527,10 +524,11 @@ namespace Xidi
                 configuredMapper[i] = defaultMapper;
             }
 
-            Message::Output(Message::ESeverity::Info, L"Mappers assigned to controllers...");
+            Infra::Message::Output(
+                Infra::Message::ESeverity::Info, L"Mappers assigned to controllers...");
             for (TControllerIdentifier i = 0; i < _countof(configuredMapper); ++i)
-              Message::OutputFormatted(
-                  Message::ESeverity::Info,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
                   L"    [%u]: %s",
                   (unsigned int)(1 + i),
                   configuredMapper[i]->GetName().data());
@@ -538,8 +536,8 @@ namespace Xidi
 
       if (controllerIdentifier >= _countof(configuredMapper))
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Error,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Error,
             L"Internal error: Requesting a mapper for out-of-bounds controller %u.",
             (unsigned int)(1 + controllerIdentifier));
         return GetNull();
@@ -578,54 +576,75 @@ namespace Xidi
       // full analog range of motion, since most often applications will themselves apply a deadzone
       // and saturation via virtual controller properties. However not all applications do this, and
       // some interfaces like WinMM do not even support application-supplied properties.
-      static const unsigned int kDeadzonePercentStickLeft =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesDeadzonePercentStickLeft)
-              .value_or(0);
-      static const unsigned int kDeadzonePercentStickRight =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesDeadzonePercentStickRight)
-              .value_or(0);
-      static const unsigned int kDeadzonePercentTriggerLT =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesDeadzonePercentTriggerLT)
-              .value_or(0);
-      static const unsigned int kDeadzonePercentTriggerRT =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesDeadzonePercentTriggerRT)
-              .value_or(0);
-      static const unsigned int kSaturationPercentStickLeft =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesSaturationPercentStickLeft)
-              .value_or(100);
-      static const unsigned int kSaturationPercentStickRight =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesSaturationPercentStickRight)
-              .value_or(100);
-      static const unsigned int kSaturationPercentTriggerLT =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesSaturationPercentTriggerLT)
-              .value_or(100);
-      static const unsigned int kSaturationPercentTriggerRT =
-          (unsigned int)Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionProperties,
-                  Strings::kStrConfigurationSettingsPropertiesSaturationPercentTriggerRT)
-              .value_or(100);
+      // Furthermore, some games require an extra correction to map from a circular field of
+      // physical motion to a square field of virtual motion.
+      static const double kCircleToSquareFractionStickLeft =
+          static_cast<double>(
+              Globals::GetConfigurationData()
+                  [Strings::kStrConfigurationSectionProperties]
+                  [Strings::kStrConfigurationSettingsPropertiesCircleToSquarePercentStickLeft]
+                      .ValueOr(0)) /
+          100.0;
+      static const double kCircleToSquareFractionStickRight =
+          static_cast<double>(
+              Globals::GetConfigurationData()
+                  [Strings::kStrConfigurationSectionProperties]
+                  [Strings::kStrConfigurationSettingsPropertiesCircleToSquarePercentStickRight]
+                      .ValueOr(0)) /
+          100.0;
+      static const unsigned int kDeadzonePercentStickLeft = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesDeadzonePercentStickLeft]
+                  .ValueOr(0));
+      static const unsigned int kDeadzonePercentStickRight = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesDeadzonePercentStickRight]
+                  .ValueOr(0));
+      static const unsigned int kDeadzonePercentTriggerLT = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesDeadzonePercentTriggerLT]
+                  .ValueOr(0));
+      static const unsigned int kDeadzonePercentTriggerRT = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesDeadzonePercentTriggerRT]
+                  .ValueOr(0));
+      static const unsigned int kSaturationPercentStickLeft = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesSaturationPercentStickLeft]
+                  .ValueOr(100));
+      static const unsigned int kSaturationPercentStickRight = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesSaturationPercentStickRight]
+                  .ValueOr(100));
+      static const unsigned int kSaturationPercentTriggerLT = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesSaturationPercentTriggerLT]
+                  .ValueOr(100));
+      static const unsigned int kSaturationPercentTriggerRT = static_cast<unsigned int>(
+          Globals::GetConfigurationData()
+              [Strings::kStrConfigurationSectionProperties]
+              [Strings::kStrConfigurationSettingsPropertiesSaturationPercentTriggerRT]
+                  .ValueOr(100));
+
+      // If requested by the user, left and right stick values need to be transformed so that a
+      // circular field of physical motion is transformed into a square field of virtual motion.
+      const Math::SAnalogStickCoordinates stickLeftCoordinates =
+          Math::TransformCoordinatesCircleToSquare(
+              {.x = physicalState[EPhysicalStick::LeftX],
+               .y = physicalState[EPhysicalStick::LeftY]},
+              kCircleToSquareFractionStickLeft);
+      const Math::SAnalogStickCoordinates stickRightCoordinates =
+          Math::TransformCoordinatesCircleToSquare(
+              {.x = physicalState[EPhysicalStick::RightX],
+               .y = physicalState[EPhysicalStick::RightY]},
+              kCircleToSquareFractionStickRight);
 
       SState controllerState = {};
 
@@ -640,7 +659,7 @@ namespace Xidi
         elements.named.stickLeftX->ContributeFromAnalogValue(
             controllerState,
             Math::ApplyRawAnalogTransform(
-                FilterAnalogStickValue(physicalState[EPhysicalStick::LeftX]),
+                FilterAnalogStickValue(stickLeftCoordinates.x),
                 kDeadzonePercentStickLeft,
                 kSaturationPercentStickLeft),
             SourceIdentifierForElementMapper(
@@ -649,7 +668,7 @@ namespace Xidi
         elements.named.stickLeftY->ContributeFromAnalogValue(
             controllerState,
             Math::ApplyRawAnalogTransform(
-                FilterAndInvertAnalogStickValue(physicalState[EPhysicalStick::LeftY]),
+                FilterAndInvertAnalogStickValue(stickLeftCoordinates.y),
                 kDeadzonePercentStickLeft,
                 kSaturationPercentStickLeft),
             SourceIdentifierForElementMapper(
@@ -659,7 +678,7 @@ namespace Xidi
         elements.named.stickRightX->ContributeFromAnalogValue(
             controllerState,
             Math::ApplyRawAnalogTransform(
-                FilterAnalogStickValue(physicalState[EPhysicalStick::RightX]),
+                FilterAnalogStickValue(stickRightCoordinates.x),
                 kDeadzonePercentStickRight,
                 kSaturationPercentStickRight),
             SourceIdentifierForElementMapper(
@@ -668,7 +687,7 @@ namespace Xidi
         elements.named.stickRightY->ContributeFromAnalogValue(
             controllerState,
             Math::ApplyRawAnalogTransform(
-                FilterAndInvertAnalogStickValue(physicalState[EPhysicalStick::RightY]),
+                FilterAndInvertAnalogStickValue(stickRightCoordinates.y),
                 kDeadzonePercentStickRight,
                 kSaturationPercentStickRight),
             SourceIdentifierForElementMapper(

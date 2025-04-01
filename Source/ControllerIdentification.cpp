@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ControllerIdentification.cpp
  *   Implementation of functions for identifying and enumerating Xidi virtual controllers in the
@@ -16,15 +16,18 @@
 #include <memory>
 #include <optional>
 
+#include <Infra/Core/Configuration.h>
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+#include <Infra/Core/Strings.h>
+#include <Infra/Core/TemporaryBuffer.h>
+
 #include "ApiBitSet.h"
 #include "ApiDirectInput.h"
-#include "Configuration.h"
 #include "ControllerTypes.h"
 #include "Globals.h"
 #include "Mapper.h"
-#include "Message.h"
 #include "Strings.h"
-#include "TemporaryBuffer.h"
 
 namespace Xidi
 {
@@ -107,7 +110,7 @@ namespace Xidi
       case Controller::EAxis::RotZ:
         usageForAxis = (uint16_t)EHidUsageGeneralDesktop::AxisRotZ;
         break;
-      case Controller::EAxis::Slider:
+    case Controller::EAxis::Slider:
         usageForAxis = (uint16_t)EHidUsageGeneralDesktop::Slider;
         break;
       case Controller::EAxis::Dial:
@@ -147,47 +150,62 @@ namespace Xidi
         .usage = (uint16_t)EHidUsageGeneralDesktop::Gamepad};
   }
 
+  /// Determines whether or not the "friendly" names for virtual controllers should use the short
+  /// format. Default behavior is to use a long format for these names, but this default can be
+  /// overridden using a workaround in the configuration file. This function reads and caches that
+  /// configuration setting.
+  /// @return `true` if the short name format should be used, `false` otherwise.
+  static bool ShouldUseShortNameFormatForVirtualControllers(void)
+  {
+    static const bool useShortVirtualControllerNames =
+        Globals::GetConfigurationData()
+            [Strings::kStrConfigurationSectionWorkarounds]
+            [Strings::kStrConfigurationSettingsWorkaroundsUseShortVirtualControllerNames]
+                .ValueOr(false);
+    return useShortVirtualControllerNames;
+  }
+
   std::optional<bool> ApproximatelyEqualVendorAndProductId(
       std::wstring_view controllerStringA, std::wstring_view controllerStringB)
   {
     static constexpr std::wstring_view kVendorIdPrefix = L"VID";
     static constexpr std::wstring_view kProductIdPrefix = L"PID";
 
-    TemporaryVector<std::wstring_view> piecesA =
-        Strings::SplitString(controllerStringA, {L"_", L"&", L"#"});
-    TemporaryVector<std::wstring_view> piecesB =
-        Strings::SplitString(controllerStringB, {L"_", L"&", L"#"});
+    Infra::TemporaryVector<std::wstring_view> piecesA =
+        Infra::Strings::Split<wchar_t>(controllerStringA, {L"_", L"&", L"#"});
+    Infra::TemporaryVector<std::wstring_view> piecesB =
+        Infra::Strings::Split<wchar_t>(controllerStringB, {L"_", L"&", L"#"});
 
     std::wstring_view vendorIdA, vendorIdB, productIdA, productIdB;
 
     for (unsigned int i = 0; i < (piecesA.Size() - 1); ++i)
     {
-      if (true == Strings::EqualsCaseInsensitive(piecesA[i], kVendorIdPrefix))
+      if (true == Infra::Strings::EqualsCaseInsensitive(piecesA[i], kVendorIdPrefix))
         vendorIdA = piecesA[++i];
-      else if (true == Strings::EqualsCaseInsensitive(piecesA[i], kProductIdPrefix))
+      else if (true == Infra::Strings::EqualsCaseInsensitive(piecesA[i], kProductIdPrefix))
         productIdA = piecesA[++i];
     }
 
     for (unsigned int i = 0; i < (piecesB.Size() - 1); ++i)
     {
-      if (true == Strings::EqualsCaseInsensitive(piecesB[i], kVendorIdPrefix))
+      if (true == Infra::Strings::EqualsCaseInsensitive(piecesB[i], kVendorIdPrefix))
         vendorIdB = piecesB[++i];
-      if (true == Strings::EqualsCaseInsensitive(piecesB[i], kProductIdPrefix))
+      if (true == Infra::Strings::EqualsCaseInsensitive(piecesB[i], kProductIdPrefix))
         productIdB = piecesB[++i];
     }
 
     if (vendorIdA.empty() || vendorIdB.empty() || productIdA.empty() || productIdB.empty())
       return std::nullopt;
 
-    if (false == Strings::EqualsCaseInsensitive(productIdA, productIdB)) return false;
+    if (false == Infra::Strings::EqualsCaseInsensitive(productIdA, productIdB)) return false;
 
     if ((vendorIdA.length() == vendorIdB.length()) && (vendorIdA == vendorIdB))
-      return Strings::EqualsCaseInsensitive(vendorIdA, vendorIdB);
+      return Infra::Strings::EqualsCaseInsensitive(vendorIdA, vendorIdB);
     else if (vendorIdA.length() < vendorIdB.length())
-      return Strings::EqualsCaseInsensitive(
+      return Infra::Strings::EqualsCaseInsensitive(
           vendorIdA, vendorIdB.substr(vendorIdB.length() - vendorIdA.length()));
     else
-      return Strings::EqualsCaseInsensitive(
+      return Infra::Strings::EqualsCaseInsensitive(
           vendorIdA.substr(vendorIdA.length() - vendorIdB.length()), vendorIdB);
   }
 
@@ -220,7 +238,7 @@ namespace Xidi
           case HidUsageDataForAxis(Controller::EAxis::Slider).usage:
             return Controller::SElementIdentifier(
                 {.type = Controller::EElementType::Axis, .axis = Controller::EAxis::Slider});
-          case HidUsageDataForAxis(Controller::EAxis::Dial).usage:
+            case HidUsageDataForAxis(Controller::EAxis::Dial).usage:
             return Controller::SElementIdentifier(
                 {.type = Controller::EElementType::Axis, .axis = Controller::EAxis::Dial});
           case HidUsageDataForPov().usage:
@@ -247,9 +265,10 @@ namespace Xidi
     return std::nullopt;
   }
 
-  template <typename EarliestIDirectInputType, typename EarliestIDirectInputDeviceType> bool
-      DoesDirectInputControllerSupportXInput(
-          EarliestIDirectInputType* dicontext, REFGUID instanceGUID, std::wstring* devicePath)
+  template <EDirectInputVersion diVersion> bool DoesDirectInputControllerSupportXInput(
+      typename DirectInputTypes<diVersion>::IDirectInputCompatType* dicontext,
+      REFGUID instanceGUID,
+      std::wstring* devicePath)
   {
     // Here the original Xidi filters(hides) every xinput controller from device enumerations
     // This is for games that look for controllers and display their names and use them to map controls etc...
@@ -259,27 +278,30 @@ namespace Xidi
     return true;
   }
 
-  template bool DoesDirectInputControllerSupportXInput<
-      typename EarliestIDirectInputA,
-      typename EarliestIDirectInputDeviceA>(EarliestIDirectInputA*, REFGUID, std::wstring*);
-  template bool DoesDirectInputControllerSupportXInput<
-      typename EarliestIDirectInputW,
-      typename EarliestIDirectInputDeviceW>(EarliestIDirectInputW*, REFGUID, std::wstring*);
+  template bool DoesDirectInputControllerSupportXInput<EDirectInputVersion::k8A>(
+      IDirectInput8A*, REFGUID, std::wstring*);
+  template bool DoesDirectInputControllerSupportXInput<EDirectInputVersion::k8W>(
+      IDirectInput8W*, REFGUID, std::wstring*);
+  template bool DoesDirectInputControllerSupportXInput<EDirectInputVersion::kLegacyA>(
+      IDirectInputA*, REFGUID, std::wstring*);
+  template bool DoesDirectInputControllerSupportXInput<EDirectInputVersion::kLegacyW>(
+      IDirectInputW*, REFGUID, std::wstring*);
 
-  template <typename DeviceInstanceType> BOOL EnumerateVirtualControllers(
-      BOOL(FAR PASCAL* lpCallback)(const DeviceInstanceType*, LPVOID),
+  template <EDirectInputVersion diVersion> BOOL EnumerateVirtualControllers(
+      BOOL(FAR PASCAL* lpCallback)(
+          const typename DirectInputTypes<diVersion>::DeviceInstanceType*, LPVOID),
       LPVOID pvRef,
       bool forceFeedbackRequired)
   {
-    std::unique_ptr<DeviceInstanceType> instanceInfo = std::make_unique<DeviceInstanceType>();
+    std::unique_ptr<typename DirectInputTypes<diVersion>::DeviceInstanceType> instanceInfo =
+        std::make_unique<typename DirectInputTypes<diVersion>::DeviceInstanceType>();
     uint32_t numControllersToEnumerate = Controller::kPhysicalControllerCount;
 
     const uint64_t activeVirtualControllerMask =
         Globals::GetConfigurationData()
-            .GetFirstIntegerValue(
-                Strings::kStrConfigurationSectionWorkarounds,
-                Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask)
-            .value_or(UINT64_MAX);
+            [Strings::kStrConfigurationSectionWorkarounds]
+            [Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask]
+                .ValueOr(UINT64_MAX);
 
     for (uint32_t idx = 0; idx < numControllersToEnumerate; ++idx)
     {
@@ -287,14 +309,14 @@ namespace Xidi
         continue;
 
       *instanceInfo = {.dwSize = sizeof(*instanceInfo)};
-      FillVirtualControllerInfo(*instanceInfo, idx);
+      FillVirtualControllerInfo<diVersion>(*instanceInfo, idx);
 
       if (0 != (activeVirtualControllerMask & ((uint64_t)1 << idx)))
       {
-        if (Message::WillOutputMessageOfSeverity(Message::ESeverity::Info))
+        if (Infra::Message::WillOutputMessageOfSeverity(Infra::Message::ESeverity::Info))
         {
-          Message::OutputFormatted(
-              Message::ESeverity::Info,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Info,
               L"Enumerate: Presenting Xidi virtual controller %u (instance GUID %s) to the application.",
               (1 + idx),
               Strings::GuidToString(instanceInfo->guidInstance).AsCString());
@@ -307,23 +329,29 @@ namespace Xidi
     return DIENUM_CONTINUE;
   }
 
-  template BOOL EnumerateVirtualControllers(LPDIENUMDEVICESCALLBACKA, LPVOID, bool);
-  template BOOL EnumerateVirtualControllers(LPDIENUMDEVICESCALLBACKW, LPVOID, bool);
+  template BOOL EnumerateVirtualControllers<EDirectInputVersion::k8A>(
+      LPDIENUMDEVICESCALLBACKA, LPVOID, bool);
+  template BOOL EnumerateVirtualControllers<EDirectInputVersion::k8W>(
+      LPDIENUMDEVICESCALLBACKW, LPVOID, bool);
+  template BOOL EnumerateVirtualControllers<EDirectInputVersion::kLegacyA>(
+      LPDIENUMDEVICESCALLBACKA, LPVOID, bool);
+  template BOOL EnumerateVirtualControllers<EDirectInputVersion::kLegacyW>(
+      LPDIENUMDEVICESCALLBACKW, LPVOID, bool);
 
   template <> int FillHidCollectionName<LPSTR>(
       LPSTR buf, size_t bufcount, uint16_t hidCollectionNumber)
   {
-    TemporaryBuffer<CHAR> hidCollectionNameNameFormatString;
+    Infra::TemporaryBuffer<CHAR> hidCollectionNameNameFormatString;
 
     if (kVirtualControllerHidCollectionForEntireDevice == hidCollectionNumber)
       LoadStringA(
-          Globals::GetInstanceHandle(),
+          Infra::ProcessInfo::GetThisModuleInstanceHandle(),
           IDS_XIDI_CONTROLLERIDENTIFICATION_HID_COLLECTION_NAME_PLUS_CONTROLLER_TYPE_FORMAT,
           hidCollectionNameNameFormatString.Data(),
           hidCollectionNameNameFormatString.Capacity());
     else
       LoadStringA(
-          Globals::GetInstanceHandle(),
+          Infra::ProcessInfo::GetThisModuleInstanceHandle(),
           IDS_XIDI_CONTROLLERIDENTIFICATION_HID_COLLECTION_NAME_FORMAT,
           hidCollectionNameNameFormatString.Data(),
           hidCollectionNameNameFormatString.Capacity());
@@ -338,17 +366,17 @@ namespace Xidi
   template <> int FillHidCollectionName<LPWSTR>(
       LPWSTR buf, size_t bufcount, uint16_t hidCollectionNumber)
   {
-    TemporaryBuffer<WCHAR> hidCollectionNameNameFormatString;
+    Infra::TemporaryBuffer<WCHAR> hidCollectionNameNameFormatString;
 
     if (kVirtualControllerHidCollectionForEntireDevice == hidCollectionNumber)
       LoadStringW(
-          Globals::GetInstanceHandle(),
+          Infra::ProcessInfo::GetThisModuleInstanceHandle(),
           IDS_XIDI_CONTROLLERIDENTIFICATION_HID_COLLECTION_NAME_PLUS_CONTROLLER_TYPE_FORMAT,
           hidCollectionNameNameFormatString.Data(),
           hidCollectionNameNameFormatString.Capacity());
     else
       LoadStringW(
-          Globals::GetInstanceHandle(),
+          Infra::ProcessInfo::GetThisModuleInstanceHandle(),
           IDS_XIDI_CONTROLLERIDENTIFICATION_HID_COLLECTION_NAME_FORMAT,
           hidCollectionNameNameFormatString.Data(),
           hidCollectionNameNameFormatString.Capacity());
@@ -360,44 +388,23 @@ namespace Xidi
         (unsigned int)hidCollectionNumber);
   }
 
-  template <typename DeviceInstanceType> void FillVirtualControllerInfo(
-      DeviceInstanceType& instanceInfo, Controller::TControllerIdentifier controllerId)
+  template <EDirectInputVersion diVersion> void FillVirtualControllerInfo(
+      typename DirectInputTypes<diVersion>::DeviceInstanceType& instanceInfo,
+      Controller::TControllerIdentifier controllerId)
   {
     instanceInfo.guidInstance = VirtualControllerGuid(controllerId);
     instanceInfo.guidProduct = VirtualControllerGuid(controllerId);
-    instanceInfo.dwDevType = DINPUT_DEVTYPE_XINPUT_GAMEPAD;
-
-    FillVirtualControllerName(instanceInfo.tszInstanceName, _countof(instanceInfo.tszInstanceName), controllerId);
-    FillVirtualControllerName(instanceInfo.tszProductName, _countof(instanceInfo.tszProductName), controllerId);
-
-    const Configuration::ConfigurationData& configData = Globals::GetConfigurationData();
-
-    char finalControllerName[MAX_PATH];
-
-    TemporaryString perControllerNameString;
-    
-    perControllerNameString.Clear();
-    perControllerNameString << Xidi::Strings::kStrConfigurationSettingName << Xidi::Strings::kCharConfigurationSettingSeparator << (1 + controllerId);
-
-    const auto& controllerNameSection = configData[Xidi::Strings::kStrConfigurationSectionNames];
-    if (
-        true == configData.SectionExists(Xidi::Strings::kStrConfigurationSectionNames) && 
-        true == controllerNameSection.NameExists(Strings::NameConfigurationNameString(controllerId))
-    ) {
-        std::wstring_view controllerName = controllerNameSection[perControllerNameString].FirstValue().GetStringValue();
-        sprintf_s(finalControllerName, MAX_PATH, "%ws", controllerName.data());
-        sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
-        sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
-    } else {
-        sprintf_s(finalControllerName, MAX_PATH, "%ws%d", L"Xidi ", controllerId);
-        sprintf_s((LPSTR)instanceInfo.tszProductName, MAX_PATH, finalControllerName);
-        sprintf_s((LPSTR)instanceInfo.tszInstanceName, MAX_PATH, finalControllerName);
-    }
+    instanceInfo.dwDevType = DirectInputTypes<diVersion>::XinputGamepadDeviceType();
+    FillVirtualControllerName(
+        instanceInfo.tszInstanceName, _countof(instanceInfo.tszInstanceName), controllerId);
+    FillVirtualControllerName(
+        instanceInfo.tszProductName, _countof(instanceInfo.tszProductName), controllerId);
 
     // DirectInput versions 5 and higher include extra members in this structure, and this is
     // indicated on input using the size member of the structure.
     if (instanceInfo.dwSize >
-        offsetof(DeviceInstanceType, tszProductName) + sizeof(DeviceInstanceType::tszProductName))
+        offsetof(typename DirectInputTypes<diVersion>::DeviceInstanceType, tszProductName) +
+            sizeof(DirectInputTypes<diVersion>::DeviceInstanceType::tszProductName))
     {
       if (true == DoesControllerSupportForceFeedback(controllerId))
         instanceInfo.guidFFDriver = kVirtualControllerForceFeedbackDriverGuid;
@@ -410,16 +417,24 @@ namespace Xidi
     }
   }
 
-  template void FillVirtualControllerInfo(DIDEVICEINSTANCEA&, Controller::TControllerIdentifier);
-  template void FillVirtualControllerInfo(DIDEVICEINSTANCEW&, Controller::TControllerIdentifier);
+  template void FillVirtualControllerInfo<EDirectInputVersion::k8A>(
+      DIDEVICEINSTANCEA&, Controller::TControllerIdentifier);
+  template void FillVirtualControllerInfo<EDirectInputVersion::k8W>(
+      DIDEVICEINSTANCEW&, Controller::TControllerIdentifier);
+  template void FillVirtualControllerInfo<EDirectInputVersion::kLegacyA>(
+      DIDEVICEINSTANCEA&, Controller::TControllerIdentifier);
+  template void FillVirtualControllerInfo<EDirectInputVersion::kLegacyW>(
+      DIDEVICEINSTANCEW&, Controller::TControllerIdentifier);
 
   template <> int FillVirtualControllerName<LPSTR>(
       LPSTR buf, size_t bufcount, Controller::TControllerIdentifier controllerIndex)
   {
-    TemporaryBuffer<CHAR> xidiControllerNameFormatString;
+    Infra::TemporaryBuffer<CHAR> xidiControllerNameFormatString;
     LoadStringA(
-        Globals::GetInstanceHandle(),
-        IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_NAME_FORMAT,
+        Infra::ProcessInfo::GetThisModuleInstanceHandle(),
+        (ShouldUseShortNameFormatForVirtualControllers()
+             ? IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_SHORT_NAME_FORMAT
+             : IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_NAME_FORMAT),
         xidiControllerNameFormatString.Data(),
         xidiControllerNameFormatString.Capacity());
 
@@ -430,10 +445,12 @@ namespace Xidi
   template <> int FillVirtualControllerName<LPWSTR>(
       LPWSTR buf, size_t bufcount, Controller::TControllerIdentifier controllerIndex)
   {
-    TemporaryBuffer<WCHAR> xidiControllerNameFormatString;
+    Infra::TemporaryBuffer<WCHAR> xidiControllerNameFormatString;
     LoadStringW(
-        Globals::GetInstanceHandle(),
-        IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_NAME_FORMAT,
+        Infra::ProcessInfo::GetThisModuleInstanceHandle(),
+        (ShouldUseShortNameFormatForVirtualControllers()
+             ? IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_SHORT_NAME_FORMAT
+             : IDS_XIDI_CONTROLLERIDENTIFICATION_CONTROLLER_NAME_FORMAT),
         xidiControllerNameFormatString.Data(),
         xidiControllerNameFormatString.Capacity());
 

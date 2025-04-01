@@ -3,13 +3,11 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file VirtualControllerTest.cpp
  *   Unit tests for virtual controller objects.
  **************************************************************************************************/
-
-#include "TestCase.h"
 
 #include "VirtualController.h"
 
@@ -20,6 +18,8 @@
 #include <initializer_list>
 #include <memory>
 #include <optional>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ControllerTypes.h"
@@ -183,13 +183,17 @@ namespace XidiTest
 
     // Cutoff points between regions.
     const int32_t rawSaturationCutoffNegative = Controller::kAnalogValueNeutral +
-        ((int32_t)((double)(Controller::kAnalogValueMin - Controller::kAnalogValueNeutral) * ((double)saturation / (double)VirtualController::kAxisSaturationMax)));
+        ((int32_t)((double)(Controller::kAnalogValueMin - Controller::kAnalogValueNeutral) *
+                   ((double)saturation / (double)VirtualController::kAxisSaturationMax)));
     const int32_t rawDeadzoneCutoffNegative = Controller::kAnalogValueNeutral +
-        ((int32_t)((double)(Controller::kAnalogValueMin - Controller::kAnalogValueNeutral) * ((double)deadzone / (double)VirtualController::kAxisDeadzoneMax)));
+        ((int32_t)((double)(Controller::kAnalogValueMin - Controller::kAnalogValueNeutral) *
+                   ((double)deadzone / (double)VirtualController::kAxisDeadzoneMax)));
     const int32_t rawDeadzoneCutoffPositive = Controller::kAnalogValueNeutral +
-        ((int32_t)((double)(Controller::kAnalogValueMax - Controller::kAnalogValueNeutral) * ((double)deadzone / (double)VirtualController::kAxisDeadzoneMax)));
+        ((int32_t)((double)(Controller::kAnalogValueMax - Controller::kAnalogValueNeutral) *
+                   ((double)deadzone / (double)VirtualController::kAxisDeadzoneMax)));
     const int32_t rawSaturationCutoffPositive = Controller::kAnalogValueNeutral +
-        ((int32_t)((double)(Controller::kAnalogValueMax - Controller::kAnalogValueNeutral) * ((double)saturation / (double)VirtualController::kAxisSaturationMax)));
+        ((int32_t)((double)(Controller::kAnalogValueMax - Controller::kAnalogValueNeutral) *
+                   ((double)saturation / (double)VirtualController::kAxisSaturationMax)));
 
     // Output monotonicity check variable.
     int32_t lastOutputAxisValue = rangeMin;

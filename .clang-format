@@ -18,7 +18,7 @@ Language:                                                   Cpp
 Standard:                                                   Latest
 AccessModifierOffset:                                       -2
 AlignAfterOpenBracket:                                      AlwaysBreak
-AlignArrayOfStructures:                                     Left
+AlignArrayOfStructures:                                     None
 AlignConsecutiveAssignments:                                None
 AlignConsecutiveBitFields:                                  None
 AlignConsecutiveDeclarations:                               None
@@ -36,7 +36,7 @@ AllowShortIfStatementsOnASingleLine:                        WithoutElse
 AllowShortLambdasOnASingleLine:                             Empty
 AllowShortLoopsOnASingleLine:                               false
 AlwaysBreakAfterReturnType:                                 None
-AlwaysBreakBeforeMultilineStrings:                          false
+AlwaysBreakBeforeMultilineStrings:                          true
 AlwaysBreakTemplateDeclarations:                            No
 BinPackArguments:                                           false
 BinPackParameters:                                          false
@@ -62,7 +62,7 @@ BraceWrapping:
     SplitEmptyNamespace:                                    false
 # BreakAfterAttributes:                                       Always
 BreakBeforeBinaryOperators:                                 None
-BreakBeforeConceptDeclarations:                             Always
+BreakBeforeConceptDeclarations:                             Allowed
 # BreakBeforeInlineASMColon:                                  Always
 BreakBeforeTernaryOperators:                                true
 BreakConstructorInitializers:                               BeforeColon
@@ -79,8 +79,8 @@ EmptyLineBeforeAccessModifier:                              Always
 FixNamespaceComments:                                       true
 IncludeBlocks:                                              Regroup
 IncludeCategories:
-    - Regex:                                                'TestCase\.h'
-      Priority:                                             -1
+    - Regex:                                                '".*\.generated\.h"'
+      Priority:                                             100
     - Regex:                                                '<[^/]+\.h>'
       Priority:                                             1
     - Regex:                                                '<[^/]+>'
@@ -121,7 +121,7 @@ ReferenceAlignment:                                         Pointer
 ReflowComments:                                             true
 # RemoveParentheses:                                          Leave
 # RemoveSemicolon:                                            false
-RequiresClausePosition:                                     WithPreceding
+RequiresClausePosition:                                     OwnLine
 # RequiresExpressionIndentation:                              OuterScope
 SeparateDefinitionBlocks:                                   Always
 ShortNamespaceLines:                                        0

@@ -3,19 +3,19 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ForceFeedbackDeviceTest.cpp
  *   Unit tests for force feedback device objects.
  **************************************************************************************************/
-
-#include "TestCase.h"
 
 #include "ForceFeedbackDevice.h"
 
 #include <cstdint>
 #include <limits>
 #include <optional>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ForceFeedbackTypes.h"
 #include "MockForceFeedbackEffect.h"
@@ -126,7 +126,8 @@ namespace XidiTest
           effect.ComputeOrderedMagnitudeComponents(t);
 
       const TEffectTimeMs playEffectsTime =
-          (TEffectTimeMs)(((uint64_t)t + (uint64_t)kTestTimestampBase) & (uint64_t)std::numeric_limits<TEffectTimeMs>::max());
+          (TEffectTimeMs)(((uint64_t)t + (uint64_t)kTestTimestampBase) &
+                          (uint64_t)std::numeric_limits<TEffectTimeMs>::max());
       const TOrderedMagnitudeComponents actualMagnitudeComponents =
           Device.PlayEffects(playEffectsTime);
       TEST_ASSERT(actualMagnitudeComponents == expectedMagnitudeComponents);

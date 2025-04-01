@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file WrapperJoyWinMM.cpp
  *   Implementation of the wrapper for all WinMM joystick functions.
@@ -20,6 +20,9 @@
 #include <utility>
 #include <vector>
 
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+
 #include "ApiDirectInput.h"
 #include "ApiWindows.h"
 #include "ControllerIdentification.h"
@@ -28,30 +31,25 @@
 #include "Globals.h"
 #include "ImportApiDirectInput.h"
 #include "ImportApiWinMM.h"
-#include "Message.h"
 #include "Strings.h"
 #include "VirtualController.h"
 
-#include "cJSON.h"
-
-#define BUF_SIZE 1000000
-
 /// Logs a WinMM device-specific function invocation.
 #define LOG_INVOCATION(severity, joyID, result)                                                    \
-  Message::OutputFormatted(                                                                        \
+  Infra::Message::OutputFormatted(                                                                 \
       severity, L"Invoked %s on device %d, result = %u.", __FUNCTIONW__ L"()", joyID, result)
 
 /// Logs invocation of an unsupported WinMM operation.
 #define LOG_UNSUPPORTED_OPERATION()                                                                \
-  Message::OutputFormatted(                                                                        \
-      Message::ESeverity::Warning,                                                                 \
+  Infra::Message::OutputFormatted(                                                                 \
+      Infra::Message::ESeverity::Warning,                                                          \
       L"Application invoked %s on a Xidi virtual controller, which is not supported.",             \
       __FUNCTIONW__ L"()")
 
 /// Logs invocation of a WinMM operation with invalid parameters.
 #define LOG_INVALID_PARAMS()                                                                           \
-  Message::OutputFormatted(                                                                            \
-      Message::ESeverity::Warning,                                                                     \
+  Infra::Message::OutputFormatted(                                                                     \
+      Infra::Message::ESeverity::Warning,                                                              \
       L"Application invoked %s on a Xidi virtual controller, which failed due to invalid parameters.", \
       __FUNCTIONW__ L"()")
 
@@ -85,7 +83,7 @@ namespace Xidi
     struct SWinMMEnumCallbackInfo
     {
       std::vector<std::pair<std::wstring, bool>>* systemDeviceInfo;
-      IDirectInput8* directInputInterface;
+      IDirectInput8W* directInputInterface;
     };
 
     /// Fixed set of virtual controllers.
@@ -123,16 +121,16 @@ namespace Xidi
     /// Templated wrapper around the `LoadString` Windows API function, which ordinarily exists in a
     /// Unicode and non-Unicode version separately.
     /// @tparam StringType Either LPSTR or LPWSTR depending on whether ASCII or Unicode is desired.
-    template <typename StringType> static inline int LoadStringT(
+    template <typename StringType> static inline int LoadResourceString(
         HINSTANCE hInstance, UINT uID, StringType lpBuffer, int cchBufferMax);
 
-    template <> static inline int LoadStringT<LPSTR>(
+    template <> static inline int LoadResourceString<LPSTR>(
         HINSTANCE hInstance, UINT uID, LPSTR lpBuffer, int cchBufferMax)
     {
       return LoadStringA(hInstance, uID, lpBuffer, cchBufferMax);
     }
 
-    template <> static inline int LoadStringT<LPWSTR>(
+    template <> static inline int LoadResourceString<LPWSTR>(
         HINSTANCE hInstance, UINT uID, LPWSTR lpBuffer, int cchBufferMax)
     {
       return LoadStringW(hInstance, uID, lpBuffer, cchBufferMax);
@@ -147,10 +145,9 @@ namespace Xidi
     {
       const uint64_t activeVirtualControllerMask =
           Globals::GetConfigurationData()
-              .GetFirstIntegerValue(
-                  Strings::kStrConfigurationSectionWorkarounds,
-                  Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask)
-              .value_or(UINT64_MAX);
+              [Strings::kStrConfigurationSectionWorkarounds]
+              [Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask]
+                  .ValueOr(UINT64_MAX);
 
       const size_t numDevicesFromSystem = joySystemDeviceInfo.size();
       const size_t numXInputVirtualDevices = _countof(controllers);
@@ -161,8 +158,9 @@ namespace Xidi
       // prevent binding both to the WinMM version and the Xidi version of the same one.
       joyIndexMap.clear();
       joyIndexMap.reserve(numDevicesTotal);
-      Message::OutputFormatted(
-          Message::ESeverity::Debug, L"Presenting the application with these WinMM devices:");
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
+          L"Presenting the application with these WinMM devices:");
 
       if ((false == joySystemDeviceInfo[0].second) && !(joySystemDeviceInfo[0].first.empty()))
       {
@@ -173,8 +171,8 @@ namespace Xidi
         {
           if ((false == joySystemDeviceInfo[i].second) && !(joySystemDeviceInfo[i].first.empty()))
           {
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]: System-supplied WinMM device %u",
                 (unsigned int)joyIndexMap.size(),
                 (unsigned int)i);
@@ -186,8 +184,8 @@ namespace Xidi
         {
           if (0 != (activeVirtualControllerMask & ((uint64_t)1 << i)))
           {
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]: Xidi virtual controller %u",
                 (unsigned int)joyIndexMap.size(),
                 (unsigned int)(i + 1));
@@ -204,8 +202,8 @@ namespace Xidi
         {
           if (0 != (activeVirtualControllerMask & ((uint64_t)1 << i)))
           {
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]: Xidi virtual controller %u",
                 (unsigned int)joyIndexMap.size(),
                 (unsigned int)(i + 1));
@@ -217,8 +215,8 @@ namespace Xidi
         {
           if ((false == joySystemDeviceInfo[i].second) && !(joySystemDeviceInfo[i].first.empty()))
           {
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]: System-supplied WinMM device %u",
                 (unsigned int)joyIndexMap.size(),
                 (unsigned int)i);
@@ -236,9 +234,8 @@ namespace Xidi
       SWinMMEnumCallbackInfo* callbackInfo = (SWinMMEnumCallbackInfo*)pvRef;
 
       std::wstring devicePath;
-      bool deviceSupportsXInput =
-          DoesDirectInputControllerSupportXInput<LatestIDirectInput, LatestIDirectInputDevice>(
-              callbackInfo->directInputInterface, lpddi->guidInstance, &devicePath);
+      bool deviceSupportsXInput = DoesDirectInputControllerSupportXInput<EDirectInputVersion::k8W>(
+          callbackInfo->directInputInterface, lpddi->guidInstance, &devicePath);
 
       if (deviceSupportsXInput)
       {
@@ -261,15 +258,18 @@ namespace Xidi
                   .value_or(false))
           {
             callbackInfo->systemDeviceInfo->at(i).second = true;
-            Message::OutputFormatted(
-                Message::ESeverity::Debug, L"    [%u]: %s", (unsigned int)i, lpddi->tszProductName);
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
+                L"    [%u]: %s",
+                (unsigned int)i,
+                lpddi->tszProductName);
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]:     WinMM ID:       %s",
                 (unsigned int)i,
                 callbackInfo->systemDeviceInfo->at(i).first.c_str());
-            Message::OutputFormatted(
-                Message::ESeverity::Debug,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
                 L"    [%u]:     DirectInput ID: %s",
                 (unsigned int)i,
                 devicePath.c_str());
@@ -285,8 +285,8 @@ namespace Xidi
     static void CreateSystemDeviceInfo(void)
     {
       const size_t numDevicesFromSystem = (size_t)ImportApiWinMM::joyGetNumDevs();
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"System provides %u WinMM devices.",
           (unsigned int)numDevicesFromSystem);
 
@@ -299,8 +299,8 @@ namespace Xidi
       HKEY registryKey;
       if (JOYERR_NOERROR != ImportApiWinMM::joyGetDevCaps((UINT_PTR)-1, &joyCaps, sizeof(joyCaps)))
       {
-        Message::Output(
-            Message::ESeverity::Warning,
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Warning,
             L"Unable to enumerate system WinMM devices because the correct registry key could not be identified by the system.");
         return;
       }
@@ -323,8 +323,8 @@ namespace Xidi
               &registryKey,
               nullptr))
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Warning,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Warning,
             L"Unable to enumerate system WinMM devices because the registry key \"%s\" could not be opened.",
             registryPath);
         return;
@@ -332,7 +332,8 @@ namespace Xidi
 
       // For each joystick device available in the system, see if it is present and, if so, get its
       // device identifier (vendor ID and product ID string).
-      Message::Output(Message::ESeverity::Debug, L"Enumerating system WinMM devices...");
+      Infra::Message::Output(
+          Infra::Message::ESeverity::Debug, L"Enumerating system WinMM devices...");
 
       for (size_t i = 0; i < numDevicesFromSystem; ++i)
       {
@@ -340,8 +341,8 @@ namespace Xidi
         if (JOYERR_NOERROR != ImportApiWinMM::joyGetDevCaps((UINT_PTR)i, &joyCaps, sizeof(joyCaps)))
         {
           joySystemDeviceInfo.push_back({L"", false});
-          Message::OutputFormatted(
-              Message::ESeverity::Debug,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Debug,
               L"    [%u]: (not present - failed to get capabilities)",
               (unsigned int)i);
           continue;
@@ -367,8 +368,8 @@ namespace Xidi
           // If the registry value does not exist, this is past the end of the number of devices
           // WinMM sees.
           joySystemDeviceInfo.push_back({L"", false});
-          Message::OutputFormatted(
-              Message::ESeverity::Debug,
+          Infra::Message::OutputFormatted(
+              Infra::Message::ESeverity::Debug,
               L"    [%u]: (not present - failed to get vendor and product ID strings)",
               (unsigned int)i);
           continue;
@@ -376,28 +377,30 @@ namespace Xidi
 
         // Add the vendor ID and product ID string to the list.
         joySystemDeviceInfo.push_back({registryValueData, false});
-        Message::OutputFormatted(
-            Message::ESeverity::Debug, L"    [%u]: %s", (unsigned int)i, registryValueData);
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Debug, L"    [%u]: %s", (unsigned int)i, registryValueData);
       }
 
-      Message::Output(Message::ESeverity::Debug, L"Done enumerating system WinMM devices.");
+      Infra::Message::Output(
+          Infra::Message::ESeverity::Debug, L"Done enumerating system WinMM devices.");
       RegCloseKey(registryKey);
 
       // Enumerate all devices using DirectInput8 to find any XInput devices with matching vendor
       // and product identifiers. This will provide information on whether each WinMM device
       // supports XInput.
-      Message::Output(Message::ESeverity::Debug, L"Using DirectInput to detect XInput devices...");
-      IDirectInput8* directInputInterface = nullptr;
+      Infra::Message::Output(
+          Infra::Message::ESeverity::Debug, L"Using DirectInput to detect XInput devices...");
+      IDirectInput8W* directInputInterface = nullptr;
       if (S_OK !=
-          ImportApiDirectInput::DirectInput8Create(
-              Globals::GetInstanceHandle(),
+          ImportApiDirectInput::Version8::DirectInput8Create(
+              Infra::ProcessInfo::GetThisModuleInstanceHandle(),
               DIRECTINPUT_VERSION,
               IID_IDirectInput8,
               (LPVOID*)&directInputInterface,
               nullptr))
       {
-        Message::Output(
-            Message::ESeverity::Debug,
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug,
             L"Unable to detect XInput devices because a DirectInput interface object could not be created.");
         return;
       }
@@ -409,13 +412,13 @@ namespace Xidi
           directInputInterface->EnumDevices(
               DI8DEVCLASS_GAMECTRL, CreateSystemDeviceInfoEnumCallback, (LPVOID)&callbackInfo, 0))
       {
-        Message::Output(
-            Message::ESeverity::Debug,
+        Infra::Message::Output(
+            Infra::Message::ESeverity::Debug,
             L"Unable to detect XInput devices because enumeration of DirectInput devices failed.");
         return;
       }
 
-      Message::Output(Message::ESeverity::Debug, L"Done detecting XInput devices.");
+      Infra::Message::Output(Infra::Message::ESeverity::Debug, L"Done detecting XInput devices.");
     }
 
     /// Fills in the specified buffer with the name of the registry key to use for referencing
@@ -427,7 +430,11 @@ namespace Xidi
     template <typename StringType> static inline int FillRegistryKeyString(
         StringType buf, const size_t bufcount)
     {
-      return LoadStringT(Globals::GetInstanceHandle(), IDS_XIDI_PRODUCT_NAME, buf, (int)bufcount);
+      return LoadResourceString(
+          Infra::ProcessInfo::GetThisModuleInstanceHandle(),
+          IDS_XIDI_PRODUCT_NAME,
+          buf,
+          (int)bufcount);
     }
 
     /// Places the required keys and values into the registry so that WinMM-based applications can
@@ -564,6 +571,12 @@ namespace Xidi
     /// Initializes all WinMM functionality.
     static void Initialize(void)
     {
+      // There is overhead to using call_once, even after the operation is completed, and WinMM
+      // wrapper functions are called frequently. Using this additional flag avoids that overhead in
+      // the common case.
+      static bool isInitialized = false;
+      if (true == isInitialized) return;
+
       static std::once_flag initializationFlag;
       std::call_once(
           initializationFlag,
@@ -571,16 +584,14 @@ namespace Xidi
           {
             const bool enableAxisProperites =
                 Globals::GetConfigurationData()
-                    .GetFirstBooleanValue(
-                        Strings::kStrConfigurationSectionProperties,
-                        Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties)
-                    .value_or(true);
+                    [Strings::kStrConfigurationSectionProperties]
+                    [Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties]
+                        .ValueOr(true);
             const uint64_t activeVirtualControllerMask =
                 Globals::GetConfigurationData()
-                    .GetFirstIntegerValue(
-                        Strings::kStrConfigurationSectionWorkarounds,
-                        Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask)
-                    .value_or(UINT64_MAX);
+                    [Strings::kStrConfigurationSectionWorkarounds]
+                    [Strings::kStrConfigurationSettingWorkaroundsActiveVirtualControllerMask]
+                        .ValueOr(UINT64_MAX);
 
             for (Controller::TControllerIdentifier i = 0; i < _countof(controllers); ++i)
             {
@@ -609,29 +620,17 @@ namespace Xidi
             SetControllerNameRegistryInfo();
 
             // Initialization complete.
-            Message::Output(
-                Message::ESeverity::Info, L"Completed initialization of WinMM joystick wrapper.");
+            Infra::Message::Output(
+                Infra::Message::ESeverity::Info,
+                L"Completed initialization of WinMM joystick wrapper.");
+
+            isInitialized = true;
           });
     }
 
-    MMRESULT WrapperJoyWinMM::JoyConfigChanged(DWORD dwFlags)
-    {
-      Message::Output(
-          Message::ESeverity::Info, L"Refreshing joystick state due to a configuration change.");
-      Initialize();
-
-      // Redirect to the imported API so that its view of the registry can be updated.
-      HRESULT result = ImportApiWinMM::joyConfigChanged(dwFlags);
-
-      // Update Xidi's view of devices.
-      CreateSystemDeviceInfo();
-      CreateJoyIndexMap();
-      SetControllerNameRegistryInfo();
-
-      return result;
-    }
-
-    template <typename JoyCapsType> MMRESULT JoyGetDevCaps(
+    /// Templated implementation of the `joyGetDevCaps` function, allowing an "A" version and a "W"
+    /// version to be exported separately.
+    template <typename JoyCapsType> static inline MMRESULT JoyGetDevCapsInternal(
         UINT_PTR uJoyID, JoyCapsType* pjc, UINT cbjc)
     {
       // Special case: index is specified as -1, which the API says just means fill in the registry
@@ -641,11 +640,10 @@ namespace Xidi
         FillRegistryKeyString(pjc->szRegKey, _countof(pjc->szRegKey));
 
         const MMRESULT result = JOYERR_NOERROR;
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
 
-      Initialize();
       const int realJoyID = TranslateApplicationJoyIndex((UINT)uJoyID);
 
       if (realJoyID < 0)
@@ -658,7 +656,7 @@ namespace Xidi
         {
           const MMRESULT result = JOYERR_PARMS;
           LOG_INVALID_PARAMS();
-          LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+          LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
           return result;
         }
 
@@ -701,7 +699,7 @@ namespace Xidi
         FillVirtualControllerName(pjc->szPname, _countof(pjc->szPname), xJoyID);
 
         const MMRESULT result = JOYERR_NOERROR;
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
       else
@@ -712,30 +710,57 @@ namespace Xidi
 
         if (JOYERR_NOERROR == result) FillRegistryKeyString(pjc->szRegKey, _countof(pjc->szRegKey));
 
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    template MMRESULT JoyGetDevCaps(UINT_PTR uJoyID, LPJOYCAPSA pjc, UINT cbjc);
-    template MMRESULT JoyGetDevCaps(UINT_PTR uJoyID, LPJOYCAPSW pjc, UINT cbjc);
+    MMRESULT __stdcall joyConfigChanged(DWORD dwFlags)
+    {
+      Infra::Message::Output(
+          Infra::Message::ESeverity::Info,
+          L"Refreshing joystick state due to a configuration change.");
+      Initialize();
 
-    UINT JoyGetNumDevs(void)
+      // Redirect to the imported API so that its view of the registry can be updated.
+      HRESULT result = ImportApiWinMM::joyConfigChanged(dwFlags);
+
+      // Update Xidi's view of devices.
+      CreateSystemDeviceInfo();
+      CreateJoyIndexMap();
+      SetControllerNameRegistryInfo();
+
+      return result;
+    }
+
+    MMRESULT __stdcall joyGetDevCapsA(UINT_PTR uJoyID, LPJOYCAPSA pjc, UINT cbjc)
+    {
+      Initialize();
+      return JoyGetDevCapsInternal(uJoyID, pjc, cbjc);
+    }
+
+    MMRESULT __stdcall joyGetDevCapsW(UINT_PTR uJoyID, LPJOYCAPSW pjc, UINT cbjc)
+    {
+      Initialize();
+      return JoyGetDevCapsInternal(uJoyID, pjc, cbjc);
+    }
+
+    UINT __stdcall joyGetNumDevs(void)
     {
       Initialize();
 
       // Number of controllers = number of XInput controllers + number of driver-reported
       // controllers.
       UINT result = (UINT)joyIndexMap.size();
-      Message::OutputFormatted(
-          Message::ESeverity::Debug, L"Invoked %s, result = %u.", __FUNCTIONW__ L"()", result);
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
+          L"Invoked %s, result = %u.",
+          __FUNCTIONW__ L"()",
+          result);
       return result;
     }
 
-    HANDLE hMapFile;
-    char* jsonBuffer;
-
-    MMRESULT JoyGetPos(UINT uJoyID, LPJOYINFO pji)
+    MMRESULT __stdcall joyGetPos(UINT uJoyID, LPJOYINFO pji)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -746,210 +771,33 @@ namespace Xidi
         const Controller::TControllerIdentifier xJoyID =
             (Controller::TControllerIdentifier)((-realJoyID) - 1);
 
-        Controller::SState joyStateData = controllers[xJoyID]->GetState();
-
-        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
-
-        if (cJSON_GetErrorPtr() == NULL)
-        {
-          if (jsonArray != NULL)
-          {
-            cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controllers[xJoyID]->GetIdentifier());
-
-            cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b1");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B1] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b2");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B2] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b3");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B3] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b4");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B4] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b5");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B5] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b6");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B6] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b7");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B7] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b8");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B8] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b9");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B9] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b10");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B10] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b11");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B11] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b12");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B12] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b13");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B13] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b14");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B14] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b15");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B15] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b16");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B16] = buttonFromJSON->valueint;
-
-            cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::X] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Y");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::Y] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Z");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::Z] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotX] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotY] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
-
-            cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Down");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Left");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Right");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
-                  directionFromJSON->valueint;
-
-            if (controllers[xJoyID]->GetIdentifier() == 0)
-            {
-              cJSON* keyboardKeys = cJSON_GetObjectItem(jsonObject, "keyboard");
-
-              if (keyboardKeys != NULL)
-              {
-                cJSON* pressed = cJSON_GetObjectItem(keyboardKeys, "pressed");
-                for (int i = 0; i < cJSON_GetArraySize(pressed); ++i)
-                {
-                  cJSON* currentKey = cJSON_GetArrayItem(pressed, i);
-                  Xidi::Keyboard::SubmitKeyPressedState(currentKey->valueint);
-                }
-
-                cJSON* released = cJSON_GetObjectItem(keyboardKeys, "released");
-                for (int i = 0; i < cJSON_GetArraySize(released); ++i)
-                {
-                  cJSON* currentKey = cJSON_GetArrayItem(released, i);
-                  Xidi::Keyboard::SubmitKeyReleasedState(currentKey->valueint);
-                }
-              }
-
-              cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
-
-              if (mouseData != NULL)
-              {
-                cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                            Xidi::Mouse::EMouseButton::Left);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Right)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                            Xidi::Mouse::EMouseButton::Right);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x1");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X1)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X1);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x2");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X2)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X2);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "middle");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint ? Xidi::Mouse::SubmitMouseButtonPressedState(
-                                                      Xidi::Mouse::EMouseButton::Middle)
-                                                : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                                                      Xidi::Mouse::EMouseButton::Middle);
-
-                cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
-                if (mouseMove->valueint != 0)
-                {
-                  cJSON* mouseX = cJSON_GetObjectItemCaseSensitive(mouseData, "x");
-                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::X, mouseX->valueint, 0);
-                  cJSON* mouseY = cJSON_GetObjectItemCaseSensitive(mouseData, "y");
-                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
-
-                  cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
-                  Xidi::Mouse::SubmitMouseMovement(
-                      Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
-                  cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
-                  Xidi::Mouse::SubmitMouseMovement(
-                      Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
-                }
-              }
-            }
-          }
-        }
-
-        cJSON_Delete(jsonArray);
-
-        if (hMapFile == NULL)
-          hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
-
-        UnmapViewOfFile(jsonBuffer);
-        jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
+        const Controller::SState joyStateData = controllers[xJoyID]->GetState();
 
         pji->wXpos = (WORD)joyStateData[Controller::EAxis::X];
         pji->wYpos = (WORD)joyStateData[Controller::EAxis::Y];
         pji->wZpos = (WORD)joyStateData[Controller::EAxis::Z];
         pji->wButtons = 0;
-        if (true == joyStateData.button[0]) pji->wButtons |= JOY_BUTTON1;
-        if (true == joyStateData.button[1]) pji->wButtons |= JOY_BUTTON2;
-        if (true == joyStateData.button[2]) pji->wButtons |= JOY_BUTTON3;
-        if (true == joyStateData.button[3]) pji->wButtons |= JOY_BUTTON4;
+
+        constexpr size_t maxButtonIndex = 8 * sizeof(pji->wButtons);
+        for (size_t i = 0; ((i < joyStateData.button.size()) && (i < maxButtonIndex)); ++i)
+        {
+          if (true == joyStateData.button[i]) pji->wButtons |= (1 << i);
+        }
 
         const MMRESULT result = JOYERR_NOERROR;
-        LOG_INVOCATION(Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
         return result;
       }
       else
       {
         // Querying a non-XInput controller.
         const MMRESULT result = ImportApiWinMM::joyGetPos((UINT)realJoyID, pji);
-        LOG_INVOCATION(Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    MMRESULT JoyGetPosEx(UINT uJoyID, LPJOYINFOEX pji)
+    MMRESULT __stdcall joyGetPosEx(UINT uJoyID, LPJOYINFOEX pji)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -964,198 +812,18 @@ namespace Xidi
         {
           MMRESULT result = JOYERR_PARMS;
           LOG_INVALID_PARAMS();
-          LOG_INVOCATION(Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
+          LOG_INVOCATION(Infra::Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
           return result;
         }
 
-        Controller::SState joyStateData = controllers[xJoyID]->GetState();
-
-        cJSON* jsonArray = cJSON_Parse(jsonBuffer);
-
-        if (cJSON_GetErrorPtr() == NULL)
-        {
-          if (jsonArray != NULL)
-          {
-            cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controllers[xJoyID]->GetIdentifier());
-
-            cJSON* buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b1");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B1] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b2");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B2] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b3");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B3] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b4");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B4] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b5");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B5] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b6");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B6] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b7");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B7] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b8");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B8] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b9");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B9] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b10");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B10] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b11");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B11] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b12");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B12] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b13");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B13] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b14");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B14] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b15");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B15] = buttonFromJSON->valueint;
-            buttonFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "b16");
-            if (buttonFromJSON != NULL)
-              joyStateData.button[(int)Xidi::Controller::EButton::B16] = buttonFromJSON->valueint;
-
-            cJSON* axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "X");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::X] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Y");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::Y] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Z");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::Z] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotX");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotX] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotY");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotY] = axisFromJSON->valueint;
-            axisFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "RotZ");
-            if (axisFromJSON != NULL)
-              joyStateData.axis[(int)Xidi::Controller::EAxis::RotZ] = axisFromJSON->valueint;
-
-            cJSON* directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Up");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Up] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Down");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Down] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Left");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Left] =
-                  directionFromJSON->valueint;
-            directionFromJSON = cJSON_GetObjectItemCaseSensitive(jsonObject, "Right");
-            if (directionFromJSON != NULL)
-              joyStateData.povDirection.components[(int)Xidi::Controller::EPovDirection::Right] =
-                  directionFromJSON->valueint;
-
-            if (controllers[xJoyID]->GetIdentifier() == 0)
-            {
-              cJSON* keyboardKeys = cJSON_GetObjectItem(jsonObject, "keyboard");
-
-              if (keyboardKeys != NULL)
-              {
-                cJSON* pressed = cJSON_GetObjectItem(keyboardKeys, "pressed");
-                for (int i = 0; i < cJSON_GetArraySize(pressed); ++i)
-                {
-                  cJSON* currentKey = cJSON_GetArrayItem(pressed, i);
-                  Xidi::Keyboard::SubmitKeyPressedState(currentKey->valueint);
-                }
-
-                cJSON* released = cJSON_GetObjectItem(keyboardKeys, "released");
-                for (int i = 0; i < cJSON_GetArraySize(released); ++i)
-                {
-                  cJSON* currentKey = cJSON_GetArrayItem(released, i);
-                  Xidi::Keyboard::SubmitKeyReleasedState(currentKey->valueint);
-                }
-              }
-
-              cJSON* mouseData = cJSON_GetObjectItem(jsonObject, "mouse");
-
-              if (mouseData != NULL)
-              {
-                cJSON* isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "left");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Left)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                            Xidi::Mouse::EMouseButton::Left);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "right");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::Right)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                            Xidi::Mouse::EMouseButton::Right);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x1");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X1)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X1);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "x2");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint
-                      ? Xidi::Mouse::SubmitMouseButtonPressedState(Xidi::Mouse::EMouseButton::X2)
-                      : Xidi::Mouse::SubmitMouseButtonReleasedState(Xidi::Mouse::EMouseButton::X2);
-
-                isCurrentKeyPressed = cJSON_GetObjectItemCaseSensitive(mouseData, "middle");
-                if (isCurrentKeyPressed != NULL)
-                  isCurrentKeyPressed->valueint ? Xidi::Mouse::SubmitMouseButtonPressedState(
-                                                      Xidi::Mouse::EMouseButton::Middle)
-                                                : Xidi::Mouse::SubmitMouseButtonReleasedState(
-                                                      Xidi::Mouse::EMouseButton::Middle);
-
-                cJSON* mouseMove = cJSON_GetObjectItemCaseSensitive(mouseData, "mouseMove");
-                if (mouseMove->valueint != 0)
-                {
-                  cJSON* mouseX = cJSON_GetObjectItemCaseSensitive(mouseData, "x");
-                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::X, mouseX->valueint, 0);
-                  cJSON* mouseY = cJSON_GetObjectItemCaseSensitive(mouseData, "y");
-                  Xidi::Mouse::SubmitMouseMovement(Xidi::Mouse::EMouseAxis::Y, mouseY->valueint, 0);
-
-                  cJSON* wheelX = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelX");
-                  Xidi::Mouse::SubmitMouseMovement(
-                      Xidi::Mouse::EMouseAxis::WheelHorizontal, wheelX->valueint, 0);
-                  cJSON* wheelY = cJSON_GetObjectItemCaseSensitive(mouseData, "wheelY");
-                  Xidi::Mouse::SubmitMouseMovement(
-                      Xidi::Mouse::EMouseAxis::WheelVertical, wheelY->valueint, 0);
-                }
-              }
-            }
-          }
-        }
-
-        cJSON_Delete(jsonArray);
-
-        if (hMapFile == NULL)
-          hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
-
-        UnmapViewOfFile(jsonBuffer);
-        jsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
-
+        const Controller::SState joyStateData = controllers[xJoyID]->GetState();
         const EPovValue joyStateDataPovValue =
             DataFormat::DirectInputPovValue(joyStateData.povDirection);
 
         // Fill in the provided structure.
-        // WinMM uses only 16 bits to indicate that the dpad is centered, whereas it is safe to use
-        // all 32 in DirectInput, hence the conversion (forgetting this can introduce bugs into
-        // games).
+        // WinMM uses only 16 bits to indicate that the dpad is centered, whereas it is safe to
+        // use all 32 in DirectInput, hence the conversion (forgetting this can introduce bugs
+        // into games).
         pji->dwPOV =
             (EPovValue::Center == joyStateDataPovValue ? (DWORD)(JOY_POVCENTERED)
                                                        : (DWORD)joyStateDataPovValue);
@@ -1167,25 +835,26 @@ namespace Xidi
         pji->dwVpos = joyStateData[Controller::EAxis::RotX];
         pji->dwButtons = 0;
 
-        for (size_t i = 0; i < joyStateData.button.size(); ++i)
+        constexpr size_t maxButtonIndex = 8 * sizeof(pji->dwButtons);
+        for (size_t i = 0; ((i < joyStateData.button.size()) && (i < maxButtonIndex)); ++i)
         {
           if (true == joyStateData.button[i]) pji->dwButtons |= (1 << i);
         }
 
         const MMRESULT result = JOYERR_NOERROR;
-        LOG_INVOCATION(Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
         return result;
       }
       else
       {
         // Querying a non-XInput controller.
         const MMRESULT result = ImportApiWinMM::joyGetPosEx((UINT)realJoyID, pji);
-        LOG_INVOCATION(Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::SuperDebug, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    MMRESULT JoyGetThreshold(UINT uJoyID, LPUINT puThreshold)
+    MMRESULT __stdcall joyGetThreshold(UINT uJoyID, LPUINT puThreshold)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -1197,19 +866,19 @@ namespace Xidi
         // Operation not supported.
         const MMRESULT result = JOYERR_NOCANDO;
         LOG_UNSUPPORTED_OPERATION();
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return JOYERR_NOCANDO;
       }
       else
       {
         // Querying a non-XInput controller.
         const MMRESULT result = ImportApiWinMM::joyGetThreshold((UINT)realJoyID, puThreshold);
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    MMRESULT JoyReleaseCapture(UINT uJoyID)
+    MMRESULT __stdcall joyReleaseCapture(UINT uJoyID)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -1221,19 +890,19 @@ namespace Xidi
         // Operation not supported.
         const MMRESULT result = JOYERR_NOCANDO;
         LOG_UNSUPPORTED_OPERATION();
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
       else
       {
         // Querying a non-XInput controller.
         const MMRESULT result = ImportApiWinMM::joyReleaseCapture((UINT)realJoyID);
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    MMRESULT JoySetCapture(HWND hwnd, UINT uJoyID, UINT uPeriod, BOOL fChanged)
+    MMRESULT __stdcall joySetCapture(HWND hwnd, UINT uJoyID, UINT uPeriod, BOOL fChanged)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -1245,7 +914,7 @@ namespace Xidi
         // Operation not supported.
         const MMRESULT result = JOYERR_NOCANDO;
         LOG_UNSUPPORTED_OPERATION();
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
       else
@@ -1253,12 +922,12 @@ namespace Xidi
         // Querying a non-XInput controller.
         const MMRESULT result =
             ImportApiWinMM::joySetCapture(hwnd, (UINT)realJoyID, uPeriod, fChanged);
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
     }
 
-    MMRESULT JoySetThreshold(UINT uJoyID, UINT uThreshold)
+    MMRESULT __stdcall joySetThreshold(UINT uJoyID, UINT uThreshold)
     {
       Initialize();
       const int realJoyID = TranslateApplicationJoyIndex(uJoyID);
@@ -1270,14 +939,14 @@ namespace Xidi
         // Operation not supported.
         const MMRESULT result = JOYERR_NOCANDO;
         LOG_UNSUPPORTED_OPERATION();
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
       else
       {
         // Querying a non-XInput controller.
         const MMRESULT result = ImportApiWinMM::joySetThreshold((UINT)realJoyID, uThreshold);
-        LOG_INVOCATION(Message::ESeverity::Info, (unsigned int)uJoyID, result);
+        LOG_INVOCATION(Infra::Message::ESeverity::Info, (unsigned int)uJoyID, result);
         return result;
       }
     }

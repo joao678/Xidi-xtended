@@ -3,13 +3,11 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MapperTest.cpp
  *   Unit tests for entire controller layout mapper objects.
  **************************************************************************************************/
-
-#include "TestCase.h"
 
 #include "Mapper.h"
 
@@ -19,6 +17,8 @@
 #include <memory>
 #include <unordered_set>
 #include <utility>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiBitSet.h"
 #include "ApiWindows.h"

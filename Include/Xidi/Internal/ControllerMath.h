@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ControllerMath.h
  *   Declaration and partial implementation of common mathematical operations for interpreting
@@ -22,6 +22,19 @@ namespace Xidi
   {
     namespace Math
     {
+      /// Represents the two-dimensional coordinates of an analog stick position, both X and Y,
+      /// which correspond to physical axis directions. In both cases 0 is the center point of the
+      /// axis, with the signs used to indicate direction. The actual mapping of sign to physical
+      /// direction is immaterial because the math implemented by this module is sign-agnostic.
+      /// Range of motion on each axis is -32768 to +32767.
+      struct SAnalogStickCoordinates
+      {
+        int16_t x;
+        int16_t y;
+
+        constexpr bool operator==(const SAnalogStickCoordinates& other) const = default;
+      };
+
       /// Threshold value used to determine if a trigger is considered "pressed" or not as a digital
       /// button.
       inline constexpr uint8_t kTriggerPressedThreshold = (kTriggerValueMax - kTriggerValueMin) / 6;
@@ -83,6 +96,20 @@ namespace Xidi
       {
         return (triggerValue >= kTriggerPressedThreshold);
       }
+
+      /// Applies a correction to convert the coordinates of an analog stick reading
+      /// from circle to square. On many controllers, the analog stick range of motion follows a
+      /// circular pattern, but sometimes the application expects a square (for example, diagonals
+      /// that hit extreme coordinate values on both axes simultaneously, which is not possible with
+      /// a circular range of motion).
+      /// @param [in] circleCoords Physical coordinates read from the analog stick, assumed to be on
+      /// a circular range of motion.
+      /// @param [in] amountFraction Value between 0.0 and 1.0 that determines the amount of
+      /// transformation to apply.
+      /// @return Replacement analog stick coordinates after the transformation is applied from a
+      /// circular range of motion to a square range of motion.
+      SAnalogStickCoordinates TransformCoordinatesCircleToSquare(
+          SAnalogStickCoordinates cirleCoords, double amountFraction);
     } // namespace Math
   }   // namespace Controller
 } // namespace Xidi

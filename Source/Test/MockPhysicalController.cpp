@@ -3,20 +3,20 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MockPhysicalController.cpp
  *   Implementation of a mock version of the physical controller interface along with additional
  *   testing-specific functions.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "MockPhysicalController.h"
 
 #include <shared_mutex>
 #include <stop_token>
 #include <vector>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ForceFeedbackDevice.h"

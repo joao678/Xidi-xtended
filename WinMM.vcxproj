@@ -19,21 +19,18 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    
     <ClInclude Include="Include\Xidi\Internal\ApiBitSet.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiDirectInput.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiGUID.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiWindows.h" />
     <ClInclude Include="Include\Xidi\Internal\ApiXidi.h" />
-<ClInclude Include="Include\Xidi\Internal\cJSON.h" />
+    <ClInclude Include="Include\Xidi\Internal\cJSON.h" />
     <ClInclude Include="Include\Xidi\Internal\ConcurrencyWrapper.h" />
-    <ClInclude Include="Include\Xidi\Internal\Configuration.h" />
     <ClInclude Include="Include\Xidi\Internal\ControllerMath.h" />
     <ClInclude Include="Include\Xidi\Internal\ControllerTypes.h" />
     <ClInclude Include="Include\Xidi\Internal\DataFormat.h" />
-    <ClInclude Include="Include\Xidi\Internal\DebugAssert.h" />
+    <ClInclude Include="Include\Xidi\Internal\DllFunctions.h" />
     <ClInclude Include="Include\Xidi\Internal\ElementMapper.h" />
-    <ClInclude Include="Include\Xidi\Internal\ExportApiWinMM.h" />
     <ClInclude Include="Include\Xidi\Internal\ForceFeedbackDevice.h" />
     <ClInclude Include="Include\Xidi\Internal\ForceFeedbackEffect.h" />
     <ClInclude Include="Include\Xidi\Internal\ForceFeedbackMath.h" />
@@ -48,13 +45,10 @@
     <ClInclude Include="Include\Xidi\Internal\Mapper.h" />
     <ClInclude Include="Include\Xidi\Internal\MapperBuilder.h" />
     <ClInclude Include="Include\Xidi\Internal\MapperParser.h" />
-    <ClInclude Include="Include\Xidi\Internal\Message.h" />
     <ClInclude Include="Include\Xidi\Internal\Mouse.h" />
     <ClInclude Include="Include\Xidi\Internal\PhysicalController.h" />
     <ClInclude Include="Include\Xidi\Internal\StateChangeEventBuffer.h" />
     <ClInclude Include="Include\Xidi\Internal\Strings.h" />
-    <ClInclude Include="Include\Xidi\Internal\TemporaryBuffer.h" />
-    <ClInclude Include="Include\Xidi\Internal\ValueOrError.h" />
     <ClInclude Include="Include\Xidi\Internal\VirtualController.h" />
     <ClInclude Include="Include\Xidi\Internal\WrapperJoyWinMM.h" />
     <ClInclude Include="Include\Xidi\Internal\XidiConfigReader.h" />
@@ -66,14 +60,14 @@
     <ClCompile Include="Source\ApiDirectInput.cpp" />
     <ClCompile Include="Source\ApiGUID.cpp" />
     <ClCompile Include="Source\ApiXidi.cpp" />
-    <ClCompile Include="Source\Configuration.cpp" />
     <ClCompile Include="Source\ControllerMath.cpp" />
     <ClCompile Include="Source\DataFormat.cpp" />
+    <ClCompile Include="Source\DllFunctions.cpp" />
     <ClCompile Include="Source\ElementMapper.cpp" />
-    <ClCompile Include="Source\ExportApiWinMM.cpp" />
     <ClCompile Include="Source\ForceFeedbackDevice.cpp" />
     <ClCompile Include="Source\ForceFeedbackEffect.cpp" />
     <ClCompile Include="Source\ForceFeedbackParameters.cpp" />
+    <ClCompile Include="Source\ForwardedApiWinMM.cpp" />
     <ClCompile Include="Source\Globals.cpp" />
     <ClCompile Include="Source\ImportApiDirectInput.cpp" />
     <ClCompile Include="Source\ImportApiWinMM.cpp" />
@@ -84,23 +78,30 @@
     <ClCompile Include="Source\MapperBuilder.cpp" />
     <ClCompile Include="Source\MapperDefinitions.cpp" />
     <ClCompile Include="Source\MapperParser.cpp" />
-    <ClCompile Include="Source\Message.cpp" />
     <ClCompile Include="Source\Mouse.cpp" />
     <ClCompile Include="Source\PhysicalController.cpp" />
     <ClCompile Include="Source\StateChangeEventBuffer.cpp" />
     <ClCompile Include="Source\Strings.cpp" />
-    <ClCompile Include="Source\TemporaryBuffer.cpp" />
     <ClCompile Include="Source\DllMain.cpp" />
     <ClCompile Include="Source\VirtualController.cpp" />
     <ClCompile Include="Source\WrapperJoyWinMM.cpp" />
     <ClCompile Include="Source\XidiConfigReader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Include\Xidi\Internal\DllExportForward.inc" />
     <None Include="winmm.def" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Resources\Xidi.rc" />
     <ResourceCompile Include="Resources\WinMM.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Modules\Infra\CoreInfra.vcxproj">
+      <Project>{5af31c51-1646-4bda-9407-12273b2da870}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="Source\ForwardedApiWinMM.asm" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{97F255C7-24CE-44F1-A897-75EDB97BC541}</ProjectGuid>
@@ -109,6 +110,7 @@
     <ProjectName>WinMM</ProjectName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
+  <Import Project="$(MSBuildProjectDirectory)\Modules\Infra\Build\Properties\NativeBuild.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -136,24 +138,22 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
+  <Import Project="$(MSBuildProjectDirectory)\Modules\Infra\Build\Properties\AssemblyBuild.props" />
   <ImportGroup Label="Shared">
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(SolutionDir)$(ProjectName).props" Condition="exists('$(SolutionDir)$(ProjectName).props')" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(SolutionDir)$(ProjectName).props" Condition="exists('$(SolutionDir)$(ProjectName).props')" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(SolutionDir)$(ProjectName).props" Condition="exists('$(SolutionDir)$(ProjectName).props')" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(SolutionDir)$(ProjectName).props" Condition="exists('$(SolutionDir)$(ProjectName).props')" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -169,38 +169,27 @@
     <TargetName>winmm</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <ClCompile>
-      <PreprocessorDefinitions>DIRECTINPUT_VERSION=0x0800;WIN32;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
     <Link>
-      <ModuleDefinitionFile>$(SolutionDir)$(TargetName).def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>$(ProjectDir)$(TargetName).def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <ClCompile>
-      <PreprocessorDefinitions>DIRECTINPUT_VERSION=0x0800;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
     <Link>
-      <ModuleDefinitionFile>winmm.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>$(ProjectDir)$(TargetName).def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <ClCompile>
-      <PreprocessorDefinitions>DIRECTINPUT_VERSION=0x0800;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
     <Link>
-      <ModuleDefinitionFile>winmm.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>$(ProjectDir)$(TargetName).def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <PreprocessorDefinitions>DIRECTINPUT_VERSION=0x0800;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
     <Link>
-      <ModuleDefinitionFile>winmm.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>$(ProjectDir)$(TargetName).def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
 </Project>

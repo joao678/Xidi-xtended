@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ImportApiDirectInput.cpp
  *   Implementations of functions for accessing the DirectInput API imported
@@ -16,52 +16,82 @@
 #include <mutex>
 #include <string_view>
 
+#include <Infra/Core/Configuration.h>
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+
 #include "ApiDirectInput.h"
-#include "Configuration.h"
+#include "DllFunctions.h"
 #include "Globals.h"
-#include "Message.h"
 #include "Strings.h"
+
+/// Computes the index of the specified named function in the pointer array of the import table.
+#define IMPORT_TABLE_INDEX_OF(importTable, name)                                                   \
+  (offsetof(decltype(importTable), named.##name) / sizeof(decltype(importTable)::ptr[0]))
+
+/// Attempts to import a single function and save it into the import table.
+#define TRY_IMPORT(importTable, libraryPath, libraryHandle, functionName)                          \
+  DllFunctions::TryImport(                                                                         \
+      libraryPath,                                                                                 \
+      loadedLibrary,                                                                               \
+      #functionName,                                                                               \
+      &importTable.ptr[IMPORT_TABLE_INDEX_OF(importTable, functionName)])
 
 namespace Xidi
 {
   namespace ImportApiDirectInput
   {
-    /// Holds pointers to all the functions imported from the native DirectInput library.
+    /// Holds pointers to all the functions imported from the native DirectInput 8 library.
     /// Exposes them as both an array of typeless pointers and a named structure of type-specific
     /// pointers.
-    union UImportTable
+    union UImportTableVersion8
     {
       struct
       {
-#if DIRECTINPUT_VERSION >= 0x0800
         HRESULT(__stdcall* DirectInput8Create)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
-#else
-        HRESULT(__stdcall* DirectInputCreateA)(HINSTANCE, DWORD, LPDIRECTINPUTA*, LPUNKNOWN);
-        HRESULT(__stdcall* DirectInputCreateW)(HINSTANCE, DWORD, LPDIRECTINPUTW*, LPUNKNOWN);
-        HRESULT(__stdcall* DirectInputCreateEx)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
-#endif
         HRESULT(__stdcall* DllRegisterServer)(void);
         HRESULT(__stdcall* DllUnregisterServer)(void);
         HRESULT(__stdcall* DllCanUnloadNow)(void);
         HRESULT(__stdcall* DllGetClassObject)(REFCLSID, REFIID, LPVOID*);
       } named;
 
-      void* ptr[sizeof(named) / sizeof(void*)];
+      const void* ptr[sizeof(named) / sizeof(void*)];
     };
 
-    /// Holds the imported DirectInput API function addresses.
-    static UImportTable importTable;
+    /// Holds pointers to all the functions imported from the native DirectInput legacy library.
+    /// Exposes them as both an array of typeless pointers and a named structure of type-specific
+    /// pointers.
+    union UImportTableVersionLegacy
+    {
+      struct
+      {
+        HRESULT(__stdcall* DirectInputCreateA)(HINSTANCE, DWORD, LPDIRECTINPUTA*, LPUNKNOWN);
+        HRESULT(__stdcall* DirectInputCreateW)(HINSTANCE, DWORD, LPDIRECTINPUTW*, LPUNKNOWN);
+        HRESULT(__stdcall* DirectInputCreateEx)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
+        HRESULT(__stdcall* DllRegisterServer)(void);
+        HRESULT(__stdcall* DllUnregisterServer)(void);
+        HRESULT(__stdcall* DllCanUnloadNow)(void);
+        HRESULT(__stdcall* DllGetClassObject)(REFCLSID, REFIID, LPVOID*);
+      } named;
+
+      const void* ptr[sizeof(named) / sizeof(void*)];
+    };
+
+    /// Holds the imported DirectInput 8 API function addresses.
+    static UImportTableVersion8 importTableVersion8;
+
+    /// Holds the imported DirectInput legacy API function addresses.
+    static UImportTableVersionLegacy importTableVersionLegacy;
 
     /// Retrieves the library path for the DirectInput library that should be used for importing
     /// functions.
     /// @return Library path.
     static std::wstring_view GetImportLibraryPathDirectInput(void)
     {
-      return Globals::GetConfigurationData()
-          .GetFirstStringValue(
-              Strings::kStrConfigurationSectionImport,
-              Strings::kStrConfigurationSettingImportDirectInput)
-          .value_or(Strings::kStrSystemLibraryFilenameDirectInput);
+      return Globals::GetConfigurationData()[Strings::kStrConfigurationSectionImport]
+                                            [Strings::kStrConfigurationSettingImportDirectInput]
+                                                .ValueOr(
+                                                    Strings::GetSystemLibraryFilenameDirectInput());
     }
 
     /// Retrieves the library path for the DirectInput8 library that should be used for importing
@@ -70,21 +100,9 @@ namespace Xidi
     static std::wstring_view GetImportLibraryPathDirectInput8(void)
     {
       return Globals::GetConfigurationData()
-          .GetFirstStringValue(
-              Strings::kStrConfigurationSectionImport,
-              Strings::kStrConfigurationSettingImportDirectInput8)
-          .value_or(Strings::kStrSystemLibraryFilenameDirectInput8);
-    }
-
-    /// Logs a warning event related to failure to import a particular function from the import
-    /// library.
-    /// @param [in] functionName Name of the function whose import attempt failed.
-    static void LogImportFailed(LPCWSTR functionName)
-    {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
-          L"Import library is missing DirectInput function \"%s\". Attempts to call it will fail.",
-          functionName);
+          [Strings::kStrConfigurationSectionImport]
+          [Strings::kStrConfigurationSettingImportDirectInput8]
+              .ValueOr(Strings::GetSystemLibraryFilenameDirectInput8());
     }
 
     /// Logs a debug event related to attempting to load the system-provided library for importing
@@ -92,8 +110,8 @@ namespace Xidi
     /// @param [in] libraryPath Path of the library that was loaded.
     static void LogInitializeLibraryPath(LPCWSTR libraryPath)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"Attempting to import DirectInput functions from %s.",
           libraryPath);
     }
@@ -103,48 +121,28 @@ namespace Xidi
     /// @param [in] libraryPath Path of the library that was loaded.
     static void LogInitializeFailed(LPCWSTR libraryPath)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Error, L"Failed to load DirectInput import library %s.", libraryPath);
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Error,
+          L"Failed to load DirectInput import library %s.",
+          libraryPath);
     }
 
-    /// Logs an informational event related to successful initialization of the import table.
-    static void LogInitializeSucceeded(void)
-    {
-      Message::Output(
-          Message::ESeverity::Info, L"Successfully initialized imported DirectInput functions.");
-    }
-
-    /// Logs an error event related to a missing import function that has been invoked and then
-    /// terminates the application.
-    /// @param [in] functionName Name of the function that was invoked.
-    static void TerminateAndLogMissingFunctionCalled(LPCWSTR functionName)
-    {
-      Message::OutputFormatted(
-          Message::ESeverity::Error,
-          L"Application has attempted to call missing DirectInput import function \"%s\".",
-          functionName);
-      TerminateProcess(Globals::GetCurrentProcessHandle(), (UINT)-1);
-    }
-
-    void Initialize(void)
+    /// Dynamically loads the DirectInput 8 and sets up all imported function calls.
+    static void InitializeVersion8(void)
     {
       static std::once_flag initializeFlag;
       std::call_once(
           initializeFlag,
           []() -> void
           {
-            // Initialize the import table.
-            ZeroMemory(&importTable, sizeof(importTable));
+            ZeroMemory(&importTableVersion8, sizeof(importTableVersion8));
 
-        // Obtain the full library path string.
-#if DIRECTINPUT_VERSION >= 0x0800
             std::wstring_view libraryPath = GetImportLibraryPathDirectInput8();
-#else
-            std::wstring_view libraryPath = GetImportLibraryPathDirectInput();
-#endif
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
+                L"Attempting to import DirectInput 8 functions from %s.",
+                libraryPath.data());
 
-            // Attempt to load the library.
-            LogInitializeLibraryPath(libraryPath.data());
             HMODULE loadedLibrary = LoadLibraryEx(libraryPath.data(), nullptr, 0);
             if (nullptr == loadedLibrary)
             {
@@ -152,140 +150,139 @@ namespace Xidi
               return;
             }
 
-            // Attempt to obtain the addresses of all imported API functions.
-            FARPROC procAddress = nullptr;
+            TRY_IMPORT(importTableVersion8, libraryPath, loadedLibrary, DirectInput8Create);
+            TRY_IMPORT(importTableVersion8, libraryPath, loadedLibrary, DllRegisterServer);
+            TRY_IMPORT(importTableVersion8, libraryPath, loadedLibrary, DllUnregisterServer);
+            TRY_IMPORT(importTableVersion8, libraryPath, loadedLibrary, DllCanUnloadNow);
+            TRY_IMPORT(importTableVersion8, libraryPath, loadedLibrary, DllGetClassObject);
 
-#if DIRECTINPUT_VERSION >= 0x0800
-            procAddress = GetProcAddress(loadedLibrary, "DirectInput8Create");
-            if (nullptr == procAddress) LogImportFailed(L"DirectInput8Create");
-            importTable.named.DirectInput8Create =
-                reinterpret_cast<decltype(importTable.named.DirectInput8Create)>(procAddress);
-#else
-            procAddress = GetProcAddress(loadedLibrary, "DirectInputCreateA");
-            if (nullptr == procAddress) LogImportFailed(L"DirectInputCreateA");
-            importTable.named.DirectInputCreateA =
-                reinterpret_cast<decltype(importTable.named.DirectInputCreateA)>(procAddress);
-
-            procAddress = GetProcAddress(loadedLibrary, "DirectInputCreateW");
-            if (nullptr == procAddress) LogImportFailed(L"DirectInputCreateW");
-            importTable.named.DirectInputCreateW =
-                reinterpret_cast<decltype(importTable.named.DirectInputCreateW)>(procAddress);
-
-            procAddress = GetProcAddress(loadedLibrary, "DirectInputCreateEx");
-            if (nullptr == procAddress) LogImportFailed(L"DirectInputCreateEx");
-            importTable.named.DirectInputCreateEx =
-                reinterpret_cast<decltype(importTable.named.DirectInputCreateEx)>(procAddress);
-#endif
-
-            procAddress = GetProcAddress(loadedLibrary, "DllRegisterServer");
-            if (nullptr == procAddress) LogImportFailed(L"DllRegisterServer");
-            importTable.named.DllRegisterServer =
-                reinterpret_cast<decltype(importTable.named.DllRegisterServer)>(procAddress);
-
-            procAddress = GetProcAddress(loadedLibrary, "DllUnregisterServer");
-            if (nullptr == procAddress) LogImportFailed(L"DllUnregisterServer");
-            importTable.named.DllUnregisterServer =
-                reinterpret_cast<decltype(importTable.named.DllUnregisterServer)>(procAddress);
-
-            procAddress = GetProcAddress(loadedLibrary, "DllCanUnloadNow");
-            if (nullptr == procAddress) LogImportFailed(L"DllCanUnloadNow");
-            importTable.named.DllCanUnloadNow =
-                reinterpret_cast<decltype(importTable.named.DllCanUnloadNow)>(procAddress);
-
-            procAddress = GetProcAddress(loadedLibrary, "DllGetClassObject");
-            if (nullptr == procAddress) LogImportFailed(L"DllGetClassObject");
-            importTable.named.DllGetClassObject =
-                reinterpret_cast<decltype(importTable.named.DllGetClassObject)>(procAddress);
-
-            // Initialization complete.
-            LogInitializeSucceeded();
+            Infra::Message::Output(
+                Infra::Message::ESeverity::Info,
+                L"Finished importing DirectInput 8 functions.");
           });
     }
 
-#if DIRECTINPUT_VERSION >= 0x0800
-    HRESULT DirectInput8Create(
-        HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID* ppvOut, LPUNKNOWN punkOuter)
+    /// Dynamically loads the DirectInput 8 and sets up all imported function calls.
+    static void InitializeVersionLegacy(void)
     {
-      Initialize();
+      static std::once_flag initializeFlag;
+      std::call_once(
+          initializeFlag,
+          []() -> void
+          {
+            ZeroMemory(&importTableVersionLegacy, sizeof(importTableVersionLegacy));
 
-      if (nullptr == importTable.named.DirectInput8Create)
-        TerminateAndLogMissingFunctionCalled(L"DirectInput8Create");
+            std::wstring_view libraryPath = GetImportLibraryPathDirectInput();
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Debug,
+                L"Attempting to import DirectInput legacy functions from %s.",
+                libraryPath.data());
 
-      return importTable.named.DirectInput8Create(hinst, dwVersion, riidltf, ppvOut, punkOuter);
-    }
-#else
-    HRESULT DirectInputCreateA(
-        HINSTANCE hinst, DWORD dwVersion, LPDIRECTINPUTA* ppDI, LPUNKNOWN punkOuter)
-    {
-      Initialize();
+            HMODULE loadedLibrary = LoadLibraryEx(libraryPath.data(), nullptr, 0);
+            if (nullptr == loadedLibrary)
+            {
+              LogInitializeFailed(libraryPath.data());
+              return;
+            }
 
-      if (nullptr == importTable.named.DirectInputCreateA)
-        TerminateAndLogMissingFunctionCalled(L"DirectInputCreateA");
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DirectInputCreateA);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DirectInputCreateW);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DirectInputCreateEx);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DllRegisterServer);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DllUnregisterServer);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DllCanUnloadNow);
+            TRY_IMPORT(importTableVersionLegacy, libraryPath, loadedLibrary, DllGetClassObject);
 
-      return importTable.named.DirectInputCreateA(hinst, dwVersion, ppDI, punkOuter);
-    }
-
-    HRESULT DirectInputCreateW(
-        HINSTANCE hinst, DWORD dwVersion, LPDIRECTINPUTW* ppDI, LPUNKNOWN punkOuter)
-    {
-      Initialize();
-
-      if (nullptr == importTable.named.DirectInputCreateW)
-        TerminateAndLogMissingFunctionCalled(L"DirectInputCreateW");
-
-      return importTable.named.DirectInputCreateW(hinst, dwVersion, ppDI, punkOuter);
-    }
-
-    HRESULT DirectInputCreateEx(
-        HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID* ppvOut, LPUNKNOWN punkOuter)
-    {
-      Initialize();
-
-      if (nullptr == importTable.named.DirectInputCreateEx)
-        TerminateAndLogMissingFunctionCalled(L"DirectInputCreateEx");
-
-      return importTable.named.DirectInputCreateEx(hinst, dwVersion, riidltf, ppvOut, punkOuter);
-    }
-#endif
-
-    HRESULT DllRegisterServer(void)
-    {
-      Initialize();
-
-      if (nullptr == importTable.named.DllRegisterServer)
-        TerminateAndLogMissingFunctionCalled(L"DllRegisterServer");
-
-      return importTable.named.DllRegisterServer();
+            Infra::Message::Output(
+                Infra::Message::ESeverity::Info,
+                L"Finished importing DirectInput legacy functions.");
+          });
     }
 
-    HRESULT DllUnregisterServer(void)
+    namespace Version8
     {
-      Initialize();
+      HRESULT DirectInput8Create(
+          HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID* ppvOut, LPUNKNOWN punkOuter)
+      {
+        if (nullptr == importTableVersion8.named.DirectInput8Create) InitializeVersion8();
+        return importTableVersion8.named.DirectInput8Create(
+            hinst, dwVersion, riidltf, ppvOut, punkOuter);
+      }
 
-      if (nullptr == importTable.named.DllUnregisterServer)
-        TerminateAndLogMissingFunctionCalled(L"DllUnregisterServer");
+      HRESULT DllRegisterServer(void)
+      {
+        if (nullptr == importTableVersion8.named.DllRegisterServer) InitializeVersion8();
+        return importTableVersion8.named.DllRegisterServer();
+      }
 
-      return importTable.named.DllUnregisterServer();
-    }
+      HRESULT DllUnregisterServer(void)
+      {
+        if (nullptr == importTableVersion8.named.DllUnregisterServer) InitializeVersion8();
+        return importTableVersion8.named.DllUnregisterServer();
+      }
 
-    HRESULT DllCanUnloadNow(void)
+      HRESULT DllCanUnloadNow(void)
+      {
+        if (nullptr == importTableVersion8.named.DllCanUnloadNow) InitializeVersion8();
+        return importTableVersion8.named.DllCanUnloadNow();
+      }
+
+      HRESULT DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
+      {
+        if (nullptr == importTableVersion8.named.DllGetClassObject) InitializeVersion8();
+        return importTableVersion8.named.DllGetClassObject(rclsid, riid, ppv);
+      }
+    } // namespace Version8
+
+    namespace VersionLegacy
     {
-      Initialize();
+      HRESULT DirectInputCreateA(
+          HINSTANCE hinst, DWORD dwVersion, LPDIRECTINPUTA* ppDI, LPUNKNOWN punkOuter)
+      {
+        if (nullptr == importTableVersionLegacy.named.DirectInputCreateA) InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DirectInputCreateA(hinst, dwVersion, ppDI, punkOuter);
+      }
 
-      if (nullptr == importTable.named.DllCanUnloadNow)
-        TerminateAndLogMissingFunctionCalled(L"DllCanUnloadNow");
+      HRESULT DirectInputCreateW(
+          HINSTANCE hinst, DWORD dwVersion, LPDIRECTINPUTW* ppDI, LPUNKNOWN punkOuter)
+      {
+        if (nullptr == importTableVersionLegacy.named.DirectInputCreateW) InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DirectInputCreateW(hinst, dwVersion, ppDI, punkOuter);
+      }
 
-      return importTable.named.DllCanUnloadNow();
-    }
+      HRESULT DirectInputCreateEx(
+          HINSTANCE hinst, DWORD dwVersion, REFIID riidltf, LPVOID* ppvOut, LPUNKNOWN punkOuter)
+      {
+        if (nullptr == importTableVersionLegacy.named.DirectInputCreateEx)
+          InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DirectInputCreateEx(
+            hinst, dwVersion, riidltf, ppvOut, punkOuter);
+      }
 
-    HRESULT DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
-    {
-      Initialize();
+      HRESULT DllRegisterServer(void)
+      {
+        if (nullptr == importTableVersionLegacy.named.DllRegisterServer) InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DllRegisterServer();
+      }
 
-      if (nullptr == importTable.named.DllGetClassObject)
-        TerminateAndLogMissingFunctionCalled(L"DllGetClassObject");
+      HRESULT DllUnregisterServer(void)
+      {
+        if (nullptr == importTableVersionLegacy.named.DllUnregisterServer)
+          InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DllUnregisterServer();
+      }
 
-      return importTable.named.DllGetClassObject(rclsid, riid, ppv);
-    }
+      HRESULT DllCanUnloadNow(void)
+      {
+        if (nullptr == importTableVersionLegacy.named.DllCanUnloadNow) InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DllCanUnloadNow();
+      }
+
+      HRESULT DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
+      {
+        if (nullptr == importTableVersionLegacy.named.DllGetClassObject) InitializeVersionLegacy();
+        return importTableVersionLegacy.named.DllGetClassObject(rclsid, riid, ppv);
+      }
+    } // namespace VersionLegacy
   } // namespace ImportApiDirectInput
 } // namespace Xidi

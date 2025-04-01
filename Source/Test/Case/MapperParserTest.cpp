@@ -3,13 +3,11 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MapperParserTest.cpp
  *   Unit tests for run-time mapper object parsing functionality.
  **************************************************************************************************/
-
-#include "TestCase.h"
 
 #include "MapperParser.h"
 
@@ -18,6 +16,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiDirectInput.h"
 #include "ForceFeedbackTypes.h"
@@ -684,9 +684,7 @@ namespace XidiTest
         {L"X1", EMouseButton::X1},
         {L"Back", EMouseButton::X1},
         {L"X2", EMouseButton::X2},
-        {L"Forward", EMouseButton::X2}
-
-    };
+        {L"Forward", EMouseButton::X2}};
 
     for (auto& mouseButtonMapperTestItem : kMouseButtonMapperTestItems)
     {

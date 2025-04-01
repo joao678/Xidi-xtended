@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ApiXidi.cpp
  *   Implementation of common parts of the internal API for communication between Xidi modules.
@@ -13,8 +13,9 @@
 
 #include <unordered_map>
 
-#include "Globals.h"
-#include "Message.h"
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+
 #include "Strings.h"
 
 namespace Xidi
@@ -57,7 +58,6 @@ namespace Xidi
         interfaceObjectRegistry[apiClass] = interfaceObject;
     }
 
-    
     IXidi::IXidi(EClass apiClass)
     {
       RegisterInterfaceObject(apiClass, this);
@@ -69,14 +69,14 @@ namespace Xidi
     public:
 
       // IMetadata
-      Globals::SVersionInfo GetVersion(void) const override
+      Infra::ProcessInfo::SVersionInfo GetVersion(void) const override
       {
-        return Globals::GetVersion();
+        return Infra::ProcessInfo::GetProductVersion();
       }
 
       std::wstring_view GetFormName(void) const override
       {
-        return Strings::kStrFormName;
+        return Strings::GetFormName();
       }
     };
 

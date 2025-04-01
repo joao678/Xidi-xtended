@@ -3,20 +3,20 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file CompoundMapperTest.cpp
  *   Unit tests for controller element mappers that forward input received to multiple underlying
  *   element mappers.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ElementMapper.h"

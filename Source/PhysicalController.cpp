@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file PhysicalController.cpp
  *   Implementation of all functionality for communicating with physical controllers.
@@ -17,6 +17,8 @@
 #include <stop_token>
 #include <thread>
 
+#include <Infra/Core/Message.h>
+
 #include "ApiWindows.h"
 #include "ConcurrencyWrapper.h"
 #include "ControllerTypes.h"
@@ -25,8 +27,12 @@
 #include "ImportApiWinMM.h"
 #include "ImportApiXInput.h"
 #include "Mapper.h"
-#include "Message.h"
+#include "Strings.h"
 #include "VirtualController.h"
+
+#define BUF_SIZE 1000000
+
+#include "cJSON.h"
 
 namespace Xidi
 {
@@ -81,7 +87,7 @@ namespace Xidi
         case ERROR_SUCCESS:
           // Since we have to completely disable xinput, I just return them as NotConnected
           // so that the original xidi implementation dosen't feed any data to the virtual controllers
-          return {.deviceStatus = EPhysicalDeviceStatus::NotConnected};
+          return {.deviceStatus = EPhysicalDeviceStatus::Ok};
 
         case ERROR_DEVICE_NOT_CONNECTED:
           return {.deviceStatus = EPhysicalDeviceStatus::NotConnected};
@@ -106,6 +112,29 @@ namespace Xidi
     static_assert(1u << (unsigned int)EPhysicalButton::X == XINPUT_GAMEPAD_X);
     static_assert(1u << (unsigned int)EPhysicalButton::Y == XINPUT_GAMEPAD_Y);
 
+    /// Scales a vibration strength value by the specified scaling factor. If the resulting strength
+    /// exceeds the maximum possible strength it is saturated at the maximum possible strength.
+    /// @param [in] vibrationStrength Physical motor vibration strength value.
+    /// @param [in] scalingFactor Scaling factor by which to scale up or down the physical motor
+    /// vibration strength value.
+    /// @return Scaled physical motor vibration strength value that can then be sent directly to the
+    /// physical motor.
+    static ForceFeedback::TPhysicalActuatorValue ScaledVibrationStrength(
+        ForceFeedback::TPhysicalActuatorValue vibrationStrength, double scalingFactor)
+    {
+      if (0.0 == scalingFactor)
+        return 0;
+      else if (1.0 == scalingFactor)
+        return static_cast<ForceFeedback::TPhysicalActuatorValue>(vibrationStrength);
+
+      constexpr double kMaxVibrationStrength =
+          static_cast<double>(std::numeric_limits<ForceFeedback::TPhysicalActuatorValue>::max());
+      const double scaledVibrationStrength = static_cast<double>(vibrationStrength) * scalingFactor;
+
+      return static_cast<ForceFeedback::TPhysicalActuatorValue>(
+          std::min(scaledVibrationStrength, kMaxVibrationStrength));
+    }
+
     /// Writes a vibration command to a physical controller.
     /// @param [in] controllerIdentifier Identifier of the controller on which to operate.
     /// @param [in] vibration Physical actuator vibration vector.
@@ -114,10 +143,20 @@ namespace Xidi
         TControllerIdentifier controllerIdentifier,
         ForceFeedback::SPhysicalActuatorComponents vibration)
     {
+      static const double kForceFeedbackEffectStrengthScalingFactor =
+          static_cast<double>(
+              Globals::GetConfigurationData()
+                  [Strings::kStrConfigurationSectionProperties]
+                  [Strings::kStrConfigurationSettingPropertiesForceFeedbackEffectStrengthPercent]
+                      .ValueOr(100)) /
+          100.0;
+
       // Impulse triggers are ignored because the XInput API does not support them.
       XINPUT_VIBRATION xinputVibration = {
-          .wLeftMotorSpeed = (WORD)vibration.leftMotor,
-          .wRightMotorSpeed = (WORD)vibration.rightMotor};
+          .wLeftMotorSpeed = ScaledVibrationStrength(
+              vibration.leftMotor, kForceFeedbackEffectStrengthScalingFactor),
+          .wRightMotorSpeed = ScaledVibrationStrength(
+              vibration.rightMotor, kForceFeedbackEffectStrengthScalingFactor)};
       return (
           ERROR_SUCCESS ==
           ImportApiXInput::XInputSetState((DWORD)controllerIdentifier, &xinputVibration));
@@ -230,8 +269,8 @@ namespace Xidi
     {
       if (controllerIdentifier >= kPhysicalControllerCount)
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Error,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Error,
             L"Attempted to monitor physical controller with invalid identifier %u.",
             controllerIdentifier);
         return;
@@ -255,15 +294,15 @@ namespace Xidi
                 break;
 
               case EPhysicalDeviceStatus::NotConnected:
-                Message::OutputFormatted(
-                    Message::ESeverity::Info,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Info,
                     L"Physical controller %u: Hardware connected.",
                     (1 + controllerIdentifier));
                 break;
 
               default:
-                Message::OutputFormatted(
-                    Message::ESeverity::Warning,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Warning,
                     L"Physical controller %u: Cleared previous error condition.",
                     (1 + controllerIdentifier));
                 break;
@@ -272,16 +311,16 @@ namespace Xidi
 
           case EPhysicalDeviceStatus::NotConnected:
             if (newPhysicalState.deviceStatus != oldPhysicalState.deviceStatus)
-              Message::OutputFormatted(
-                  Message::ESeverity::Info,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
                   L"Physical controller %u: Hardware disconnected.",
                   (1 + controllerIdentifier));
             break;
 
           default:
             if (newPhysicalState.deviceStatus != oldPhysicalState.deviceStatus)
-              Message::OutputFormatted(
-                  Message::ESeverity::Warning,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Warning,
                   L"Physical controller %u: Encountered an error condition.",
                   (1 + controllerIdentifier));
             break;
@@ -295,6 +334,12 @@ namespace Xidi
     /// Idempotent and concurrency-safe.
     static void Initialize(void)
     {
+      // There is overhead to using call_once, even after the operation is completed, and physical
+      // controller functions are called frequently. Using this additional flag avoids that overhead
+      // in the common case.
+      static bool isInitialized = false;
+      if (true == isInitialized) return;
+
       static std::once_flag initFlag;
       std::call_once(
           initFlag,
@@ -325,20 +370,20 @@ namespace Xidi
               timeResult = ImportApiWinMM::timeBeginPeriod(timeCaps.wPeriodMin);
 
               if (MMSYSERR_NOERROR == timeResult)
-                Message::OutputFormatted(
-                    Message::ESeverity::Info,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Info,
                     L"Set the system timer resolution to %u ms.",
                     timeCaps.wPeriodMin);
               else
-                Message::OutputFormatted(
-                    Message::ESeverity::Warning,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Warning,
                     L"Failed with code %u to set the system timer resolution.",
                     timeResult);
             }
             else
             {
-              Message::OutputFormatted(
-                  Message::ESeverity::Warning,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Warning,
                   L"Failed with code %u to obtain system timer resolution information.",
                   timeResult);
             }
@@ -348,8 +393,8 @@ namespace Xidi
                  ++controllerIdentifier)
             {
               std::thread(PollForPhysicalControllerStateChanges, controllerIdentifier).detach();
-              Message::OutputFormatted(
-                  Message::ESeverity::Info,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
                   L"Initialized the physical controller state polling thread for controller %u. Desired polling period is %u ms.",
                   (unsigned int)(1 + controllerIdentifier),
                   kPhysicalPollingPeriodMilliseconds);
@@ -363,8 +408,8 @@ namespace Xidi
                  ++controllerIdentifier)
             {
               std::thread(ForceFeedbackActuateEffects, controllerIdentifier).detach();
-              Message::OutputFormatted(
-                  Message::ESeverity::Info,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
                   L"Initialized the physical controller force feedback actuation thread for controller %u. Desired actuation period is %u ms.",
                   (unsigned int)(1 + controllerIdentifier),
                   kPhysicalForceFeedbackPeriodMilliseconds);
@@ -372,18 +417,20 @@ namespace Xidi
 
             // Create and start the physical controller hardware status monitoring threads, but only
             // if the messages generated by those threads will actually be delivered as output.
-            if (Message::WillOutputMessageOfSeverity(Message::ESeverity::Warning))
+            if (Infra::Message::WillOutputMessageOfSeverity(Infra::Message::ESeverity::Warning))
             {
               for (auto controllerIdentifier = 0; controllerIdentifier < kPhysicalControllerCount;
                    ++controllerIdentifier)
               {
                 std::thread(MonitorPhysicalControllerStatus, controllerIdentifier).detach();
-                Message::OutputFormatted(
-                    Message::ESeverity::Info,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Info,
                     L"Initialized the physical controller hardware status monitoring thread for controller %u.",
                     (unsigned int)(1 + controllerIdentifier));
               }
             }
+
+            isInitialized = true;
           });
     }
 
@@ -412,8 +459,8 @@ namespace Xidi
 
       if (controllerIdentifier >= kPhysicalControllerCount)
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Error,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Error,
             L"Attempted to register with a physical controller for force feedback with invalid identifier %u.",
             controllerIdentifier);
         return nullptr;
@@ -432,8 +479,8 @@ namespace Xidi
 
       if (controllerIdentifier >= kPhysicalControllerCount)
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Error,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Error,
             L"Attempted to unregister with a physical controller for force feedback with invalid identifier %u.",
             controllerIdentifier);
         return;

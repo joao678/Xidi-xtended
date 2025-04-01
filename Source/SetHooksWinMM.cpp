@@ -3,46 +3,45 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file SetHooksWinMM.cpp
  *   Implementation of all functionality for setting WinMM hooks.
  **************************************************************************************************/
-
-#include <shlwapi.h>
 
 #include <map>
 #include <string>
 #include <string_view>
 
 #include <Hookshot/Hookshot.h>
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+#include <Infra/Core/TemporaryBuffer.h>
 
 #include "ApiWindows.h"
 #include "ApiXidi.h"
-#include "Globals.h"
-#include "Message.h"
 #include "SetHooks.h"
 #include "Strings.h"
-#include "TemporaryBuffer.h"
 
 namespace Xidi
 {
   void SetHooksWinMM(Hookshot::IHookshot* hookshot)
   {
-    Message::Output(Message::ESeverity::Info, L"Beginning to set hooks for WinMM.");
+    Infra::Message::Output(Infra::Message::ESeverity::Info, L"Beginning to set hooks for WinMM.");
 
     // First precondition.
     // System joystick functions are only hooked if there exists a WinMM DLL in the same directory
     // as this hook module and it is not already loaded.
     static const std::wstring kImportLibraryFilename(
-        std::wstring(Strings::kStrXidiDirectoryName) + std::wstring(Strings::kStrLibraryNameWinMM));
+        std::wstring(Infra::ProcessInfo::GetThisModuleDirectoryName()) + L"\\" +
+        std::wstring(Strings::kStrLibraryNameWinMM));
     if (TRUE == PathFileExists(kImportLibraryFilename.c_str()))
     {
       const HMODULE importLibraryHandle = GetModuleHandle(kImportLibraryFilename.c_str());
       if ((nullptr != importLibraryHandle) && (INVALID_HANDLE_VALUE != importLibraryHandle))
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Debug,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Debug,
             L"%s exists and is already loaded. Not attempting to hook WinMM joystick functions.",
             kImportLibraryFilename.c_str());
         return;
@@ -50,8 +49,8 @@ namespace Xidi
     }
     else
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"%s does not exist. Not attempting to hook WinMM joystick functions.",
           kImportLibraryFilename.c_str());
       return;
@@ -63,18 +62,18 @@ namespace Xidi
     const HMODULE systemLibraryHandle = GetModuleHandle(kApiSetJoystickName.data());
     if ((nullptr != systemLibraryHandle) && (INVALID_HANDLE_VALUE != systemLibraryHandle))
     {
-      TemporaryBuffer<wchar_t> systemModuleName;
+      Infra::TemporaryBuffer<wchar_t> systemModuleName;
       GetModuleFileName(systemLibraryHandle, systemModuleName.Data(), systemModuleName.Capacity());
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"System API set '%s' is already loaded as %s.",
           kApiSetJoystickName.data(),
           &systemModuleName[0]);
     }
     else
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"System API set '%s' is not loaded. Not attempting to hook WinMM joystick functions.",
           kApiSetJoystickName.data());
       return;
@@ -86,24 +85,26 @@ namespace Xidi
     const HMODULE importLibraryHandle = LoadLibrary(kImportLibraryFilename.c_str());
     if ((nullptr == importLibraryHandle) || (INVALID_HANDLE_VALUE == importLibraryHandle))
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Error,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Error,
           L"Failed to load %s. Unable to hook WinMM joystick functions.",
           kImportLibraryFilename.c_str());
       return;
     }
     else
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Debug, L"Successfully loaded %s.", kImportLibraryFilename.c_str());
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
+          L"Successfully loaded %s.",
+          kImportLibraryFilename.c_str());
     }
 
     const Xidi::Api::TGetInterfaceFunc funcXidiApiGetInterface =
         (Xidi::Api::TGetInterfaceFunc)GetProcAddress(importLibraryHandle, "XidiApiGetInterface");
     if (nullptr == funcXidiApiGetInterface)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Unloading %s because it is missing one or more required Xidi API entry points.",
           kImportLibraryFilename.c_str());
       FreeLibrary(importLibraryHandle);
@@ -114,8 +115,8 @@ namespace Xidi
         (Xidi::Api::IImportFunctions*)funcXidiApiGetInterface(Xidi::Api::EClass::ImportFunctions);
     if (nullptr == importFunctions)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::Warning,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Warning,
           L"Unloading %s because it does not support the required Xidi API interface.",
           kImportLibraryFilename.c_str());
       FreeLibrary(importLibraryHandle);
@@ -124,9 +125,9 @@ namespace Xidi
 
     const auto& replaceableImportFunctionNames = importFunctions->GetReplaceable();
     std::map<std::wstring_view, const void*> replacementImportFunctions;
-    for (auto importFunctionName : replaceableImportFunctionNames)
+    for (const auto& importFunctionName : replaceableImportFunctionNames)
     {
-      TemporaryBuffer<char> importFunctionNameAscii;
+      Infra::TemporaryBuffer<char> importFunctionNameAscii;
       wcstombs_s(
           nullptr,
           importFunctionNameAscii.Data(),
@@ -137,8 +138,8 @@ namespace Xidi
       void* const systemFunc = GetProcAddress(systemLibraryHandle, importFunctionNameAscii.Data());
       if (nullptr == systemFunc)
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Warning,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Warning,
             L"Function %s is missing from the system API set module.",
             &importFunctionName[0]);
         continue;
@@ -147,8 +148,8 @@ namespace Xidi
       void* const importFunc = GetProcAddress(importLibraryHandle, importFunctionNameAscii.Data());
       if (nullptr == importFunc)
       {
-        Message::OutputFormatted(
-            Message::ESeverity::Warning,
+        Infra::Message::OutputFormatted(
+            Infra::Message::ESeverity::Warning,
             L"Function %s is missing from %s.",
             &importFunctionName[0],
             kImportLibraryFilename.c_str());
@@ -170,8 +171,8 @@ namespace Xidi
       // Not even a single function was successfully hooked.
       // There are no import functions to replace. The application is in a consistent state and can
       // run, but Xidi's WinMM form will not function.
-      Message::OutputFormatted(
-          Message::ESeverity::Error,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Error,
           L"Failed to hook any of the %d function(s) attempted. The application can run in this state, but Xidi will likely not work.",
           (int)numUnsuccessfullyHooked);
       return;
@@ -181,12 +182,12 @@ namespace Xidi
       // Some functions were successfully hooked, but others were not.
       // This is a serious error because some of the application's joystick API calls will be
       // redirected to Xidi while others will not, leading to inconsistent behavior.
-      Message::OutputFormatted(
-          Message::ESeverity::ForcedInteractiveError,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::ForcedInteractiveError,
           L"Failed to hook %d function(s) out of a total of %d attempted. The application will likely not function correctly in this state.",
           (int)numUnsuccessfullyHooked,
           (int)replaceableImportFunctionNames.size());
-      TerminateProcess(Globals::GetCurrentProcessHandle(), (UINT)-1);
+      TerminateProcess(Infra::ProcessInfo::GetCurrentProcessHandle(), (UINT)-1);
     }
 
     const size_t numSuccessfullyReplaced =
@@ -196,8 +197,8 @@ namespace Xidi
       // Every hooked function has its original version successfully submitted to Xidi.
       // This is important because Xidi invokes the functions it invokes from the system, and the
       // addresses it uses need to provide the system functionality.
-      Message::OutputFormatted(
-          Message::ESeverity::Debug,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::Debug,
           L"Hooked and successfully replaced the import addresses for %d function(s).",
           (int)numSuccessfullyReplaced);
     }
@@ -208,12 +209,12 @@ namespace Xidi
       // system, and failure to replace the import addresses could lead to infinite accidental
       // recursion because the system functions are redirected to Xidi. Thus, the application is
       // practically guaranteed to freeze or crash.
-      Message::OutputFormatted(
-          Message::ESeverity::ForcedInteractiveError,
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::ForcedInteractiveError,
           L"Hooked %d function(s) but only successfully replaced the import addresses for %d of them. The application will likely not function correctly in this state.",
           (int)replacementImportFunctions.size(),
           (int)numSuccessfullyReplaced);
-      TerminateProcess(Globals::GetCurrentProcessHandle(), (UINT)-1);
+      TerminateProcess(Infra::ProcessInfo::GetCurrentProcessHandle(), (UINT)-1);
     }
   }
 } // namespace Xidi

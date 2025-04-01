@@ -3,17 +3,17 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file VirtualControllerTest.cpp
  *   Unit tests for virtual controller objects.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "StateChangeEventBuffer.h"
 
 #include <cstdint>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ControllerTypes.h"
 

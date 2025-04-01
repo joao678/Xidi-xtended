@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ImportApiXInput.cpp
  *   Implementations of functions for accessing the XInput API imported from the native XInput
@@ -15,9 +15,26 @@
 #include <array>
 #include <mutex>
 
+#include <Infra/Core/Message.h>
+#include <Infra/Core/ProcessInfo.h>
+
 #include "ApiWindows.h"
-#include "Globals.h"
-#include "Message.h"
+#include "DllFunctions.h"
+
+/// Computes the index of the specified named function in the pointer array of the import table.
+#define IMPORT_TABLE_INDEX_OF(name)                                                                \
+  (offsetof(UImportTable, named.##name) / sizeof(UImportTable::ptr[0]))
+
+/// Attempts to import a single function and save it into the import table. Terminates the process
+/// on failure.
+#define IMPORT_OR_TERMINATE(libraryPath, libraryHandle, functionName)                              \
+  if (false ==                                                                                     \
+      DllFunctions::TryImport(                                                                     \
+          libraryPath,                                                                             \
+          loadedLibrary,                                                                           \
+          #functionName,                                                                           \
+          &importTable.ptr[IMPORT_TABLE_INDEX_OF(functionName)]))                                  \
+    TerminateProcessBecauseImportFailed(libraryPath, _CRT_WIDE(#functionName));
 
 namespace Xidi
 {
@@ -50,22 +67,22 @@ namespace Xidi
     /// @param [in] functionName Name of the function whose import attempt failed.
     static void TerminateProcessBecauseImportFailed(LPCWSTR libraryName, LPCWSTR functionName)
     {
-      Message::OutputFormatted(
-          Message::ESeverity::ForcedInteractiveError,
-          L"Import library \"%s\" is missing XInput function \"%s\".\n\nXidi cannot function without it.",
+      Infra::Message::OutputFormatted(
+          Infra::Message::ESeverity::ForcedInteractiveError,
+          L"Import library %s is missing XInput function %s.\n\nXidi cannot function without it.",
           libraryName,
           functionName);
-      TerminateProcess(Globals::GetCurrentProcessHandle(), (UINT)-1);
+      TerminateProcess(Infra::ProcessInfo::GetCurrentProcessHandle(), (UINT)-1);
     }
 
     /// Shows an error and terminates the process in the event of failure to load any XInput
     /// library.
     static void TerminateProcessBecauseNoXInputLibraryLoaded(void)
     {
-      Message::Output(
-          Message::ESeverity::ForcedInteractiveError,
+      Infra::Message::Output(
+          Infra::Message::ESeverity::ForcedInteractiveError,
           L"Failed to load an XInput library.\n\nXidi cannot function without it.");
-      TerminateProcess(Globals::GetCurrentProcessHandle(), (UINT)-1);
+      TerminateProcess(Infra::ProcessInfo::GetCurrentProcessHandle(), (UINT)-1);
     }
 
     void Initialize(void)
@@ -88,15 +105,15 @@ namespace Xidi
               // Initialize the import table.
               ZeroMemory(&importTable, sizeof(importTable));
 
-              Message::OutputFormatted(
-                  Message::ESeverity::Info,
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
                   L"Attempting to import XInput functions from %s.",
                   xinputLibraryName);
               HMODULE loadedLibrary = LoadLibraryEx(xinputLibraryName, nullptr, 0);
               if (nullptr == loadedLibrary)
               {
-                Message::OutputFormatted(
-                    Message::ESeverity::Warning,
+                Infra::Message::OutputFormatted(
+                    Infra::Message::ESeverity::Warning,
                     L"Failed to import XInput functions from %s.",
                     xinputLibraryName);
                 continue;
@@ -105,21 +122,13 @@ namespace Xidi
               // Attempt to obtain the addresses of all imported API functions.
               FARPROC procAddress = nullptr;
 
-              procAddress = GetProcAddress(loadedLibrary, "XInputGetState");
-              if (nullptr == procAddress)
-                TerminateProcessBecauseImportFailed(xinputLibraryName, L"XInputGetState");
-              importTable.named.XInputGetState =
-                  reinterpret_cast<decltype(importTable.named.XInputGetState)>(procAddress);
-
-              procAddress = GetProcAddress(loadedLibrary, "XInputSetState");
-              if (nullptr == procAddress)
-                TerminateProcessBecauseImportFailed(xinputLibraryName, L"XInputSetState");
-              importTable.named.XInputSetState =
-                  reinterpret_cast<decltype(importTable.named.XInputSetState)>(procAddress);
+              IMPORT_OR_TERMINATE(xinputLibraryName, loadedLibrary, XInputGetState);
+              IMPORT_OR_TERMINATE(xinputLibraryName, loadedLibrary, XInputSetState);
 
               // Initialization complete.
-              Message::OutputFormatted(
-                  Message::ESeverity::Info, L"Successfully initialized imported XInput functions.");
+              Infra::Message::OutputFormatted(
+                  Infra::Message::ESeverity::Info,
+                  L"Successfully initialized imported XInput functions.");
               return;
             }
 
@@ -129,13 +138,13 @@ namespace Xidi
 
     DWORD XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState)
     {
-      Initialize();
+      if (nullptr == importTable.named.XInputGetState) Initialize();
       return importTable.named.XInputGetState(dwUserIndex, pState);
     }
 
     DWORD XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
     {
-      Initialize();
+      if (nullptr == importTable.named.XInputSetState) Initialize();
       return importTable.named.XInputSetState(dwUserIndex, pVibration);
     }
   } // namespace ImportApiXInput

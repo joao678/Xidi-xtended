@@ -3,20 +3,20 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file SplitMapperTest.cpp
  *   Unit tests for controller multi-element mappers that split an XInput controller element
  *   into a positive and a negative mapper based on its state.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ElementMapper.h"

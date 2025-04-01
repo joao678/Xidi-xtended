@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file XidiConfigReader.cpp
  *   Implementation of Xidi-specific configuration reading functionality.
@@ -16,10 +16,12 @@
 #include <optional>
 #include <string_view>
 
+#include <Infra/Core/Configuration.h>
+#include <Infra/Core/Strings.h>
+#include <Infra/Core/TemporaryBuffer.h>
+
 #include "ApiWindows.h"
-#include "Configuration.h"
 #include "Strings.h"
-#include "TemporaryBuffer.h"
 
 #ifndef XIDI_SKIP_MAPPERS
 #include "ControllerTypes.h"
@@ -31,7 +33,7 @@
 
 namespace Xidi
 {
-  using namespace ::Xidi::Configuration;
+  using namespace ::Infra::Configuration;
 
 #ifndef XIDI_SKIP_MAPPERS
   /// Default name for a custom mapper whose name is not specified.
@@ -84,11 +86,20 @@ namespace Xidi
           Strings::kStrConfigurationSectionProperties,
           {
               ConfigurationFileLayoutNameAndValueType(
+                  Strings::kStrConfigurationSettingPropertiesForceFeedbackEffectStrengthPercent,
+                  EValueType::Integer),
+              ConfigurationFileLayoutNameAndValueType(
                   Strings::kStrConfigurationSettingPropertiesMouseSpeedScalingFactorPercent,
                   EValueType::Integer),
               ConfigurationFileLayoutNameAndValueType(
                   Strings::kStrConfigurationSettingsPropertiesUseBuiltinProperties,
                   EValueType::Boolean),
+              ConfigurationFileLayoutNameAndValueType(
+                  Strings::kStrConfigurationSettingsPropertiesCircleToSquarePercentStickLeft,
+                  EValueType::Integer),
+              ConfigurationFileLayoutNameAndValueType(
+                  Strings::kStrConfigurationSettingsPropertiesCircleToSquarePercentStickRight,
+                  EValueType::Integer),
               ConfigurationFileLayoutNameAndValueType(
                   Strings::kStrConfigurationSettingsPropertiesDeadzonePercentStickLeft,
                   EValueType::Integer),
@@ -126,14 +137,11 @@ namespace Xidi
                   Strings::kStrConfigurationSettingsWorkaroundsIgnoreEnumObjectsCallbackReturnCode,
                   EValueType::Boolean),
               ConfigurationFileLayoutNameAndValueType(
-                  L"Linux",
-                  EValueType::Boolean),
-          }),
-      ConfigurationFileLayoutSection(
-          Strings::kStrConfigurationSectionNames,
-          {
+                    Strings::kStrConfigurationSettingsWorkaroundsLinux,
+                    EValueType::Boolean),
               ConfigurationFileLayoutNameAndValueType(
-                  Strings::kStrConfigurationSettingName, EValueType::String),
+                  Strings::kStrConfigurationSettingsWorkaroundsUseShortVirtualControllerNames,
+                  EValueType::Boolean),
           }),
   };
 
@@ -146,8 +154,7 @@ namespace Xidi
   {
     /// Map of supported configuration setting names to associated blueprint operations.
     static const std::map<std::wstring_view, EBlueprintOperation> kBlueprintOperationsMap = {
-        {Strings::kStrConfigurationSettingCustomMapperTemplate, EBlueprintOperation::SetTemplate}
-    };
+        {Strings::kStrConfigurationSettingCustomMapperTemplate, EBlueprintOperation::SetTemplate}};
 
     // If the configuration setting name identifies a valid controller element, then the value
     // should be parsed for an element mapper to be assigned to that controller element.
@@ -217,48 +224,54 @@ namespace Xidi
   }
 #endif
 
-  EAction XidiConfigReader::ActionForSection(std::wstring_view section)
+  Action XidiConfigReader::ActionForSection(std::wstring_view section)
   {
 #ifndef XIDI_SKIP_MAPPERS
     if ((nullptr != customMapperBuilder) && (true == IsCustomMapperSectionName(section)))
     {
       std::optional<std::wstring_view> customMapperName = ExtractCustomMapperName(section);
-      if (false == customMapperName.has_value()) return EAction::Error;
+      if (false == customMapperName.has_value()) return Action::Error();
 
       if (false == customMapperBuilder->CreateBlueprint(customMapperName.value()))
       {
-        SetErrorMessage(Strings::FormatString(
+        return Action::ErrorWithMessage(Infra::Strings::Format(
             L"%s: A mapper with this name already exists.", customMapperName.value().data()));
-        return EAction::Error;
       }
 
-      return EAction::Process;
+      return Action::Process();
     }
 #else
-    if (true == IsCustomMapperSectionName(section)) return EAction::Skip;
+    if (true == IsCustomMapperSectionName(section)) return Action::Skip();
 #endif
 
-    if (0 != configurationFileLayout.count(section)) return EAction::Process;
+    if (0 != configurationFileLayout.count(section)) return Action::Process();
 
-    return EAction::Error;
+    return Action::Error();
   }
 
-  EAction XidiConfigReader::ActionForValue(
+  Action XidiConfigReader::ActionForValue(
       std::wstring_view section, std::wstring_view name, TIntegerView value)
   {
 #ifndef XIDI_SKIP_MAPPERS
     if (Strings::kStrConfigurationSectionProperties == section)
     {
-      if (name.starts_with(XIDI_CONFIG_PROPERTIES_PREFIX_DEADZONE_PERCENT))
+      if (Strings::kStrConfigurationSettingPropertiesMouseSpeedScalingFactorPercent == name)
+      {
+        // Mouse speed scaling factor percent must not be negative but it is allowed to exceed 100,
+        // which would simply mean that the mouse speed should be scaled up rather than down.
+
+        if (value < 0) return Action::Error();
+      }
+      else if (name.starts_with(XIDI_CONFIG_PROPERTIES_PREFIX_DEADZONE_PERCENT))
       {
         // Deadzone percentages must be in the range of 0 to 45 inclusive.
         // This ensures they make semantic sense and cannot cross the minimum possible saturation
         // percentage.
 
         if ((value < 0) || (value > 45))
-          return EAction::Error;
+          return Action::Error();
         else
-          return EAction::Process;
+          return Action::Process();
       }
       else if (name.starts_with(XIDI_CONFIG_PROPERTIES_PREFIX_SATURATION_PERCENT))
       {
@@ -267,25 +280,33 @@ namespace Xidi
         // percentage.
 
         if ((value < 55) || (value > 100))
-          return EAction::Error;
+          return Action::Error();
         else
-          return EAction::Process;
+          return Action::Process();
+      }
+      else if (name.contains(L"Percent"))
+      {
+        // All other percentages must be between 0 and 100 inclusive.
+        if ((value < 0) || (value > 100))
+          return Action::Error();
+        else
+          return Action::Process();
       }
     }
 #endif
 
-    if (value >= 0) return EAction::Process;
+    if (value >= 0) return Action::Process();
 
-    return EAction::Error;
+    return Action::Error();
   }
 
-  EAction XidiConfigReader::ActionForValue(
+  Action XidiConfigReader::ActionForValue(
       std::wstring_view section, std::wstring_view name, TBooleanView value)
   {
-    return EAction::Process;
+    return Action::Process();
   }
 
-  EAction XidiConfigReader::ActionForValue(
+  Action XidiConfigReader::ActionForValue(
       std::wstring_view section, std::wstring_view name, TStringView value)
   {
 #ifndef XIDI_SKIP_MAPPERS
@@ -301,23 +322,21 @@ namespace Xidi
               Controller::MapperParser::ElementMapperFromString(value);
           if (false == maybeElementMapper.HasValue())
           {
-            SetErrorMessage(Strings::FormatString(
+            return Action::ErrorWithMessage(Infra::Strings::Format(
                 L"%s: Failed to parse element mapper: %s.",
                 name.data(),
                 maybeElementMapper.Error().c_str()));
             customMapperBuilder->InvalidateBlueprint(customMapperName);
-            return EAction::Error;
           }
 
           if (false ==
               customMapperBuilder->SetBlueprintElementMapper(
                   customMapperName, name, std::move(maybeElementMapper.Value())))
           {
-            SetErrorMessage(Strings::FormatString(
+            return Action::ErrorWithMessage(Infra::Strings::Format(
                 L"%s: Internal error: Successfully parsed element mapper but failed to set it on the blueprint.",
                 name.data()));
             customMapperBuilder->InvalidateBlueprint(customMapperName);
-            return EAction::Error;
           }
           break;
         }
@@ -328,23 +347,21 @@ namespace Xidi
               Controller::MapperParser::ForceFeedbackActuatorFromString(value);
           if (false == maybeForceFeedbackActuator.HasValue())
           {
-            SetErrorMessage(Strings::FormatString(
+            return Action::ErrorWithMessage(Infra::Strings::Format(
                 L"%s: Failed to parse force feedback actuator: %s.",
                 name.data(),
                 maybeForceFeedbackActuator.Error().c_str()));
             customMapperBuilder->InvalidateBlueprint(customMapperName);
-            return EAction::Error;
           }
 
           if (false ==
               customMapperBuilder->SetBlueprintForceFeedbackActuator(
                   customMapperName, name, maybeForceFeedbackActuator.Value()))
           {
-            SetErrorMessage(Strings::FormatString(
+            return Action::ErrorWithMessage(Infra::Strings::Format(
                 L"%s: Internal error: Successfully parsed force feedback actuator but failed to set it on the blueprint.",
                 name.data()));
             customMapperBuilder->InvalidateBlueprint(customMapperName);
-            return EAction::Error;
           }
           break;
         }
@@ -353,27 +370,26 @@ namespace Xidi
         {
           if (false == customMapperBuilder->SetBlueprintTemplate(customMapperName, value))
           {
-            SetErrorMessage(Strings::FormatString(
+            return Action::ErrorWithMessage(Infra::Strings::Format(
                 L"Internal error: Failed to set template for %s to %s.",
                 customMapperName.data(),
                 value.data()));
             customMapperBuilder->InvalidateBlueprint(customMapperName);
-            return EAction::Error;
           }
           break;
         }
 
         default:
-          return EAction::Error;
+          return Action::Error();
       }
 
       // Custom mapper configuration settings are processed using the mapper builder.
       // They do not need to be inserted into the configuration data structure.
-      return EAction::Skip;
+      return Action::Skip();
     }
 #endif
 
-    return EAction::Process;
+    return Action::Process();
   }
 
   void XidiConfigReader::BeginRead(void)
@@ -388,15 +404,15 @@ namespace Xidi
           // file layout. These are gernerated dynamically based on the number of controllers the
           // system supports.
           for (Controller::TControllerIdentifier i = 0; i < Controller::kPhysicalControllerCount;
-               ++i) {
-            configurationFileLayout[Strings::kStrConfigurationSectionMapper]
-                                   [Strings::MapperTypeConfigurationNameString(i)] =
-                                       EValueType::String;
+            ++i) {
+         configurationFileLayout[Strings::kStrConfigurationSectionMapper]
+                                [Strings::MapperTypeConfigurationNameString(i)] =
+                                    EValueType::String;
 
-            configurationFileLayout[Strings::kStrConfigurationSectionNames]
-                                   [Strings::NameConfigurationNameString(i)] =
-                                       EValueType::String;
-            }
+         configurationFileLayout[Strings::kStrConfigurationSectionNames]
+                                [Strings::NameConfigurationNameString(i)] =
+                                    EValueType::String;
+         }
         });
   }
 

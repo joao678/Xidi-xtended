@@ -3,13 +3,11 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MapperBuilderTest.cpp
  *   Unit tests for run-time mapper object building functionality.
  **************************************************************************************************/
-
-#include "TestCase.h"
 
 #include "MapperBuilder.h"
 
@@ -17,6 +15,8 @@
 #include <optional>
 #include <set>
 #include <string_view>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ControllerTypes.h"
 #include "ElementMapper.h"

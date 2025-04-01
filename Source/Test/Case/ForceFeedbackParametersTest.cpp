@@ -3,19 +3,19 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ForceFeedbackParametersTest.cpp
  *   Unit tests for functionality related to force feedback parameters, especially direction
  *   vectors.
  **************************************************************************************************/
 
-#include "TestCase.h"
-
 #include "ForceFeedbackParameters.h"
 
 #include <array>
 #include <cmath>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ForceFeedbackTypes.h"
 

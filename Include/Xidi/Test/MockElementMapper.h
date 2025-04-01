@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MockElementMapper.h
  *   Mock element mapper interface that can be used for tests.
@@ -11,11 +11,11 @@
 
 #pragma once
 
-#include "TestCase.h"
-
 #include <memory>
 #include <optional>
 #include <vector>
+
+#include <Infra/Test/TestCase.h>
 
 #include "ApiWindows.h"
 #include "ControllerTypes.h"

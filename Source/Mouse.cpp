@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file Mouse.cpp
  *   Implementation of virtual mouse event functionality, which allows physical controller
@@ -22,16 +22,13 @@
 #include <thread>
 #include <vector>
 
+#include <Infra/Core/Message.h>
+
 #include "ApiBitSet.h"
 #include "ApiWindows.h"
 #include "ControllerTypes.h"
 #include "Globals.h"
-#include "Message.h"
 #include "Strings.h"
-
-#include <iostream>
-#include <fstream>
-
 
 namespace Xidi
 {
@@ -300,18 +297,18 @@ namespace Xidi
       /// @return Appropriate number of pixels represented by the mouse movement units.
       static int MouseMovementUnitsToPixels(int mouseMovementUnits)
       {
+        static const double kSpeedScalingFactor =
+            static_cast<double>(
+                Globals::GetConfigurationData()
+                    [Strings::kStrConfigurationSectionProperties]
+                    [Strings::kStrConfigurationSettingPropertiesMouseSpeedScalingFactorPercent]
+                        .ValueOr(100)) /
+            100.0;
+
         constexpr double kMillisecondsPerSecond = 1000.0;
         constexpr double kPollingPeriodsPerSecond =
             (kMillisecondsPerSecond / (double)kMouseUpdatePeriodMilliseconds);
-
-        const double speedScalingFactor =
-            (double)Globals::GetConfigurationData()
-                .GetFirstIntegerValue(
-                    Strings::kStrConfigurationSectionProperties,
-                    Strings::kStrConfigurationSettingPropertiesMouseSpeedScalingFactorPercent)
-                .value_or(100) /
-            100.0;
-        const double fastestPixelsPerSecond = 2000.0 * speedScalingFactor;
+        const double fastestPixelsPerSecond = 2000.0 * kSpeedScalingFactor;
         const double fastestPixelsPerPollingPeriod =
             fastestPixelsPerSecond / kPollingPeriodsPerSecond;
         const double conversionScalingFactor = fastestPixelsPerPollingPeriod /
@@ -333,7 +330,8 @@ namespace Xidi
           StateContributionTracker* mouseTracker, std::stop_token mouseUpdateStopToken)
       {
         std::vector<INPUT> mouseEvents;
-        mouseEvents.reserve((unsigned int)EMouseAxis::Count + (unsigned int)EMouseButton::Count);
+        mouseEvents.reserve(
+            static_cast<size_t>(EMouseAxis::Count) + static_cast<size_t>(EMouseButton::Count));
 
         TButtonState previousMouseButtonState;
 
@@ -409,9 +407,7 @@ namespace Xidi
 
           if (mouseEvents.size() > 0)
           {
-            /* std::ofstream outFile("mouse.txt");
-            outFile << SendInput((UINT)mouseEvents.size(), mouseEvents.data(), (int)sizeof(INPUT)) << std::endl;
-            outFile.close(); */
+            SendInput((UINT)mouseEvents.size(), mouseEvents.data(), (int)sizeof(INPUT));
             mouseEvents.clear();
           }
 
@@ -447,8 +443,8 @@ namespace Xidi
           []() -> void
           {
             mouseUpdateThread.Start();
-            Message::OutputFormatted(
-                Message::ESeverity::Info,
+            Infra::Message::OutputFormatted(
+                Infra::Message::ESeverity::Info,
                 L"Initialized the mouse event thread. Desired update period is %u ms.",
                 kMouseUpdatePeriodMilliseconds);
           });

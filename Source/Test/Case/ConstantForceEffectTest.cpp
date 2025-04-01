@@ -3,13 +3,13 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ConstantForceEffectTest.cpp
  *   Unit tests for force feedback effects that produce a force of constant magnitude.
  **************************************************************************************************/
 
-#include "TestCase.h"
+#include <Infra/Test/TestCase.h>
 
 #include "ForceFeedbackEffect.h"
 #include "ForceFeedbackParameters.h"

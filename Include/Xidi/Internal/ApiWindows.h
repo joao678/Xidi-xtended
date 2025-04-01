@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file ApiWindows.h
  *   Common header file for the correct version of the Windows API.
@@ -25,3 +25,4 @@
 
 #include <psapi.h>
 #include <shlobj.h>
+#include <shlwapi.h>

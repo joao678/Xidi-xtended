@@ -3,7 +3,7 @@
  *   DirectInput interface for XInput controllers.
  ***************************************************************************************************
  * Authored by Samuel Grossman
- * Copyright (c) 2016-2023
+ * Copyright (c) 2016-2025
  ***********************************************************************************************//**
  * @file MapperParser.h
  *   Declaration of functionality for parsing pieces of mapper objects from strings, typically
@@ -16,11 +16,12 @@
 #include <optional>
 #include <string_view>
 
+#include <Infra/Core/ValueOrError.h>
+
 #include "ControllerTypes.h"
 #include "ElementMapper.h"
 #include "ForceFeedbackTypes.h"
 #include "Mapper.h"
-#include "ValueOrError.h"
 
 namespace Xidi
 {
@@ -31,13 +32,14 @@ namespace Xidi
       /// Type alias for representing either an element mapper pointer or an error message.
       /// Intended to be returned from functions that parse element mapper strings and can be used
       /// to hold semantically-rich error messages for the user.
-      using ElementMapperOrError = ValueOrError<std::unique_ptr<IElementMapper>, std::wstring>;
+      using ElementMapperOrError =
+          Infra::ValueOrError<std::unique_ptr<IElementMapper>, std::wstring>;
 
       /// Type alias for representing either a force feedback actuator or an error message.
       /// Intended to be returned from functions that parse force feedback actuator strings and can
       /// be used to hold semantically-rich error messages for the user.
       using ForceFeedbackActuatorOrError =
-          ValueOrError<ForceFeedback::SActuatorElement, std::wstring>;
+          Infra::ValueOrError<ForceFeedback::SActuatorElement, std::wstring>;
 
       /// Holds a partially-separated representation of a string that has been parsed at the very
       /// highest level. This view of the input string is separated into type and parameter
@@ -140,7 +142,7 @@ namespace Xidi
       /// Computes the recursion depth of the specified element mapper string.
       /// Some element mappers contain other embedded element mappers, which introduces a recursive
       /// aspect to parsing element mapper strings. For simple mapper types that take parameters
-      /// identifying a controller element, the recursion depth is 1.. For a null mapper identified
+      /// identifying a controller element, the recursion depth is 1. For a null mapper identified
       /// without any parameters, the recursion depth is 0. For more complex mapper types, the
       /// recursion depth can be arbitrary. If the input string does not contain an even number of
       /// parameter list starting and ending characters, the recursion is unbalanced and the depth
