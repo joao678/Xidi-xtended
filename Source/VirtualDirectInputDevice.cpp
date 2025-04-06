@@ -1684,10 +1684,12 @@ namespace Xidi
   }
 
   HANDLE hMapFile;
+  HANDLE hEventMapFile;
   char* jsonBuffer;
   bool runProgramOnce = false;
   char* newJsonBuffer;
-  bool detectedEvent = false;
+  int eventSequence = 0;
+  char* pBuf;
 
   template <EDirectInputVersion diVersion> HRESULT
       VirtualDirectInputDeviceBase<diVersion>::GetDeviceData(
@@ -1718,50 +1720,167 @@ namespace Xidi
       LOG_INVOCATION_AND_RETURN(DIERR_NOTBUFFERED, kMethodSeverityForError);
 
     DWORD numEventsAffected = 0;
-    detectedEvent = false;
+    if(hEventMapFile == NULL) hEventMapFile = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1000000, TEXT("Local\\XidiControllersEvents"));
+    if(pBuf == NULL) pBuf = (char *)MapViewOfFile(hEventMapFile, FILE_MAP_WRITE, 0, 0, 1000000);
 
-    if (nullptr != rgdod)
-    {
-        cJSON* jsonArray = cJSON_Parse(newJsonBuffer);
+    if(pBuf != NULL) {
+        if(strcmp("eventSent", pBuf) == 0) {
+            cJSON* jsonArray = cJSON_Parse(newJsonBuffer);
     
-        if (cJSON_GetErrorPtr() == NULL)
-        {
-          if (jsonArray != NULL)
-          {
-            cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
-    
-            cJSON* changedJsonObject = cJSON_GetObjectItem(jsonObject, "changed");
-            if(changedJsonObject != NULL) {
-                const uint32_t timestamp = ImportApiWinMM::timeGetTime();
-                int array_size = cJSON_GetArraySize(changedJsonObject);
-                for (int k = 0; k < array_size; k++) {
-                    cJSON *item = cJSON_GetArrayItem(changedJsonObject, k);
-                    for (int i = 0; i < 128; i++) {
-                        cJSON *buttonFromJSON = cJSON_GetObjectItemCaseSensitive(item, ("b" + std::to_string(i + 1)).c_str());
-                        if(buttonFromJSON != NULL) {
-                            numEventsAffected += 1;
-                            ZeroMemory(&rgdod[0], sizeof(rgdod[0]));
-                            rgdod[0].dwData = (DWORD)DataFormat::DirectInputButtonValue(buttonFromJSON->valueint == 1 ? true : false);
-                            rgdod[0].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Button, .button = (Xidi::Controller::EButton)i})).value(); // A value should always be present.
-                            rgdod[0].dwTimeStamp = timestamp;
-                            rgdod[0].dwSequence = rgdod[0].dwSequence + 1;
-                            detectedEvent = true;
+            if (cJSON_GetErrorPtr() == NULL)
+            {
+                if (jsonArray != NULL)
+                {
+                    cJSON* jsonObject = cJSON_GetArrayItem(jsonArray, controller->GetIdentifier());
+                    cJSON* changedJsonObject = cJSON_GetObjectItem(jsonObject, "changed");
+                    if(changedJsonObject != NULL) {
+                        const uint32_t timestamp = ImportApiWinMM::timeGetTime();
+                        int array_size = cJSON_GetArraySize(changedJsonObject);
+                        for (int k = 0; k < array_size; k++) {
+                            cJSON *item = cJSON_GetArrayItem(changedJsonObject, k);
+                            for (int i = 0; i < 128; i++) {
+                                cJSON *buttonFromJSON = cJSON_GetObjectItemCaseSensitive(item, ("b" + std::to_string(i + 1)).c_str());
+                                if(buttonFromJSON != NULL) {
+                                    numEventsAffected += 1;
+                                    ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                    rgdod[k].dwData = (DWORD)DataFormat::DirectInputButtonValue(buttonFromJSON->valueint == 1 ? true : false);
+                                    rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Button, .button = (Xidi::Controller::EButton)i })).value(); // A value should always be present.
+                                    rgdod[k].dwTimeStamp = timestamp;
+                                    rgdod[k].dwSequence = eventSequence;
+                                    eventSequence += 1;
+                                }
+                            }
+
+                            Xidi::Controller::UPovDirection povDirection;
+
+                            cJSON *directionFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Up");
+                            if(directionFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                povDirection.components[(int)Xidi::Controller::EPovDirection::Up] = directionFromJSON->valueint;
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputPovValue(povDirection);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Pov })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            directionFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Down");
+                            if(directionFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                povDirection.components[(int)Xidi::Controller::EPovDirection::Down] = directionFromJSON->valueint;
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputPovValue(povDirection);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Pov })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            cJSON *axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "X");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::X })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Y");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::Y })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Z");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::Z })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "RotX");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::RotX })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "RotY");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::RotY })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "RotZ");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::RotZ })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Slider");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::Slider })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
+
+                            axisFromJSON = cJSON_GetObjectItemCaseSensitive(item, "Dial");
+                            if(axisFromJSON != NULL) {
+                                numEventsAffected += 1;
+                                ZeroMemory(&rgdod[k], sizeof(rgdod[k]));
+                                rgdod[k].dwData = (DWORD)DataFormat::DirectInputAxisValue(axisFromJSON->valueint);
+                                rgdod[k].dwOfs = dataFormat->GetOffsetForElement(Xidi::Controller::SElementIdentifier({.type = Xidi::Controller::EElementType::Axis, .axis = Xidi::Controller::EAxis::Dial })).value(); // A value should always be present.
+                                rgdod[k].dwTimeStamp = timestamp;
+                                rgdod[k].dwSequence = eventSequence;
+                                eventSequence += 1;
+                            }
                         }
                     }
                 }
+
+                cJSON_Delete(jsonArray);
+                const char *str = "eventRequested";
+                snprintf(pBuf, strlen(str) + 1, str);
             }
-          }
         }
-    
-        cJSON_Delete(jsonArray);
-        if (hMapFile == NULL)hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
-        UnmapViewOfFile(newJsonBuffer); 
-        newJsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
     }
+
+    if (hMapFile == NULL)hMapFile = OpenFileMapping(FILE_MAP_READ, FALSE, TEXT("Local\\XidiControllers"));
+    UnmapViewOfFile(newJsonBuffer); 
+    newJsonBuffer = (char*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, BUF_SIZE);
     
     *pdwInOut = numEventsAffected;
-    LOG_INVOCATION_AND_RETURN(
-        ((detectedEvent) ? DI_BUFFEROVERFLOW : DI_OK), kMethodSeverity);
+    LOG_INVOCATION_AND_RETURN(DI_OK, kMethodSeverity);
   }
 
   template <EDirectInputVersion diVersion> HRESULT
